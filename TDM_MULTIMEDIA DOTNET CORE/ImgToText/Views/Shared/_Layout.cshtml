@@ -1,0 +1,1169 @@
+﻿@* <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] - ImgToText</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/ImgToText.styles.css" asp-append-version="true" />
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Exo+2:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary: #00f5ff;
+            --primary-dark: #00c2cb;
+            --secondary: #7b2cbf;
+            --accent: #ff2a6d;
+            --dark: #0d0d1a;
+            --dark-light: #1a1a2e;
+            --text: #e0e0ff;
+            --text-muted: #a0a0c0;
+        }
+
+        body {
+            background: linear-gradient(135deg, var(--dark) 0%, var(--dark-light) 100%);
+            color: var(--text);
+            font-family: 'Exo 2', sans-serif;
+            line-height: 1.6;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+
+        /* Safe Animated Background */
+        .bg-animation {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            overflow: hidden;
+            pointer-events: none; /* Prevents blocking interactions */
+        }
+
+        .bg-circle {
+            position: absolute;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(0, 245, 255, 0.1) 0%, transparent 70%);
+            animation: float 15s infinite ease-in-out;
+            pointer-events: none; /* Prevents blocking interactions */
+        }
+
+            .bg-circle:nth-child(1) {
+                width: 300px;
+                height: 300px;
+                top: 10%;
+                left: 5%;
+                animation-delay: 0s;
+            }
+
+            .bg-circle:nth-child(2) {
+                width: 200px;
+                height: 200px;
+                top: 60%;
+                left: 80%;
+                animation-delay: 5s;
+            }
+
+            .bg-circle:nth-child(3) {
+                width: 400px;
+                height: 400px;
+                top: 30%;
+                left: 60%;
+                animation-delay: 10s;
+            }
+
+        @@keyframes float {
+            0%, 100%
+
+        {
+            transform: translateY(0) scale(1);
+        }
+
+        50% {
+            transform: translateY(-20px) scale(1.05);
+        }
+
+        }
+
+        /* Header */
+        header {
+            background: rgba(13, 13, 26, 0.85);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(0, 245, 255, 0.2);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+            position: relative;
+            z-index: 1000; /* Ensures header stays above content */
+        }
+
+        .navbar-brand {
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 700;
+            font-size: 1.8rem;
+            background: linear-gradient(90deg, var(--primary), var(--accent));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+            .navbar-brand svg {
+                width: 30px;
+                height: 30px;
+                filter: drop-shadow(0 0 5px var(--primary));
+            }
+
+        .navbar-nav .nav-link {
+            color: var(--text) !important;
+            font-weight: 500;
+            position: relative;
+            margin: 0 5px;
+            transition: all 0.3s ease;
+        }
+
+            .navbar-nav .nav-link:hover {
+                color: var(--primary) !important;
+            }
+
+            .navbar-nav .nav-link::after {
+                content: '';
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                width: 0;
+                height: 2px;
+                background: linear-gradient(90deg, var(--primary), var(--accent));
+                transition: width 0.3s ease;
+            }
+
+            .navbar-nav .nav-link:hover::after {
+                width: 100%;
+            }
+
+        .navbar-toggler {
+            border: 1px solid var(--primary);
+            color: var(--primary);
+        }
+
+            .navbar-toggler:focus {
+                box-shadow: 0 0 0 0.1rem var(--primary);
+            }
+
+        .developer-badge {
+            background: linear-gradient(90deg, var(--secondary), var(--accent));
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 0 10px rgba(123, 44, 191, 0.5);
+        }
+
+        /* Main Content - Safe positioning */
+        .container {
+            flex: 1;
+            position: relative;
+            z-index: 10; /* Higher than background */
+        }
+
+        main {
+            padding: 2rem 0;
+            min-height: calc(100vh - 160px);
+            position: relative;
+            z-index: 5; /* Above background but below header */
+        }
+
+        /* Footer */
+        footer {
+            background: rgba(13, 13, 26, 0.9);
+            border-top: 1px solid rgba(0, 245, 255, 0.2);
+            padding: 1.5rem 0;
+            margin-top: auto;
+            position: relative;
+            z-index: 100; /* Above content but below header */
+        }
+
+        .footer-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+            .footer-content a {
+                color: var(--primary);
+                text-decoration: none;
+                transition: color 0.3s;
+            }
+
+                .footer-content a:hover {
+                    color: var(--accent);
+                    text-decoration: underline;
+                }
+
+        .footer-developer {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 600;
+        }
+
+            .footer-developer svg {
+                width: 20px;
+                height: 20px;
+                fill: var(--accent);
+            }
+
+        /* Digital Elements - Optional, not applied automatically */
+        .digital-border {
+            position: relative;
+            border: 1px solid rgba(0, 245, 255, 0.3);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+            .digital-border::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                height: 1px;
+                background: linear-gradient(90deg, transparent, var(--primary), transparent);
+                animation: scanline 3s linear infinite;
+            }
+
+        @@keyframes scanline {
+            0%
+
+        {
+            transform: translateX(-100%);
+        }
+
+        100% {
+            transform: translateX(100%);
+        }
+
+        }
+
+        /* Glow Effects */
+        .glow {
+            text-shadow: 0 0 5px currentColor;
+        }
+
+        .glow-primary {
+            text-shadow: 0 0 10px var(--primary);
+        }
+
+        /* Responsive */
+        @@media (max-width: 768px) {
+            .navbar-brand
+
+        {
+            font-size: 1.5rem;
+        }
+
+        .developer-badge {
+            font-size: 0.8rem;
+            padding: 4px 10px;
+        }
+
+        .footer-content {
+            flex-direction: column;
+            text-align: center;
+        }
+
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--dark);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(var(--primary), var(--secondary));
+            border-radius: 4px;
+        }
+
+            ::-webkit-scrollbar-thumb:hover {
+                background: linear-gradient(var(--accent), var(--secondary));
+            }
+    </style>
+</head>
+<body>
+    <!-- Safe Animated Background -->
+    <div class="bg-animation">
+        <div class="bg-circle"></div>
+        <div class="bg-circle"></div>
+        <div class="bg-circle"></div>
+    </div>
+
+    <header>
+        <nav class="navbar navbar-expand-sm navbar-toggleable-sm border-bottom box-shadow mb-3">
+            <div class="container-fluid">
+                <a class="navbar-brand" asp-area="" asp-controller="Home" asp-action="Index">
+                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M4 16L8 12L4 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                        <path d="M9 20L13 16L9 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                        <path d="M14 8L18 4L22 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                        <path d="M19 12L15 16L19 20" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                        <path d="M4 12H8" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                        <path d="M16 12H20" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                        <path d="M12 4V8" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                        <path d="M12 16V20" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                    </svg>
+                    ImgToText
+                </a>
+                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target=".navbar-collapse" aria-controls="navbarSupportedContent"
+                        aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+                <div class="navbar-collapse collapse d-sm-inline-flex justify-content-between">
+                    <ul class="navbar-nav flex-grow-1">
+                        <li class="nav-item">
+                            <a class="nav-link text-dark" asp-area="" asp-controller="Home" asp-action="Index">Home</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-dark" asp-area="" asp-controller="ImgToText" asp-action="ImageToTextScreen">Converter</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-dark" asp-area="" asp-controller="Home" asp-action="Privacy">Privacy</a>
+                        </li>
+                    </ul>
+                    <div class="developer-badge">
+                        <i class="fas fa-code"></i>
+                        TDM
+                    </div>
+                </div>
+            </div>
+        </nav>
+    </header>
+
+    <div class="container">
+        <main role="main" class="pb-3">
+            @RenderBody()
+        </main>
+    </div>
+
+    <footer class="border-top footer text-muted">
+        <div class="container">
+            <div class="footer-content">
+                <div>
+                    &copy; 2026-27 STAR_MULTIMEDIA
+                </div>
+                <div class="footer-developer">
+                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M16 7C16 9.20914 14.2091 11 12 11C9.79086 11 8 9.20914 8 7C8 4.79086 9.79086 3 12 3C14.2091 3 16 4.79086 16 7Z" stroke="currentColor" stroke-width="2" />
+                        <path d="M12 14C8.13401 14 5 17.134 5 21H19C19 17.134 15.866 14 12 14Z" stroke="currentColor" stroke-width="2" />
+                    </svg>
+                    TARAKANTA DAS MOHAPATRA
+                </div>
+                <div>
+                    <a asp-area="" asp-controller="Home" asp-action="Privacy">Privacy Policy</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script src="~/lib/jquery/dist/jquery.min.js"></script>
+    <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="~/js/site.js" asp-append-version="true"></script>
+
+    <!-- Safe SVG Animation Script -->
+    <script>
+        // Animate SVG paths on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            // Get all SVG paths in the document
+            const paths = document.querySelectorAll('svg path');
+
+            paths.forEach(path => {
+                const length = path.getTotalLength();
+
+                // Set up the starting positions
+                path.style.strokeDasharray = length;
+                path.style.strokeDashoffset = length;
+
+                // Trigger animation
+                setTimeout(() => {
+                    path.style.transition = 'stroke-dashoffset 2s ease-in-out';
+                    path.style.strokeDashoffset = '0';
+                }, 500);
+            });
+
+            // Add floating animation to background circles
+            const circles = document.querySelectorAll('.bg-circle');
+            circles.forEach((circle, index) => {
+                // Randomize animation duration and delay
+                const duration = 15 + Math.random() * 10;
+                const delay = Math.random() * 10;
+
+                circle.style.animation = `float ${duration}s infinite ease-in-out ${delay}s`;
+            });
+
+            // REMOVED: The problematic code that automatically wrapped main content
+            // This was causing layout issues on other pages
+        });
+
+        // Add glow effect to navbar links on hover
+        document.querySelectorAll('.navbar-nav .nav-link').forEach(link => {
+            link.addEventListener('mouseenter', function() {
+                this.classList.add('glow', 'glow-primary');
+            });
+
+            link.addEventListener('mouseleave', function() {
+                this.classList.remove('glow', 'glow-primary');
+            });
+        });
+    </script>
+
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html> *@
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] - STAR MULTIMEDIA</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/ImgToText.styles.css" asp-append-version="true" />
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Exo+2:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary: #00f5ff;
+            --primary-dark: #00c2cb;
+            --secondary: #7b2cbf;
+            --accent: #ff2a6d;
+            --dark: #0d0d1a;
+            --dark-light: #1a1a2e;
+            --text: #e0e0ff;
+            --text-muted: #a0a0c0;
+        }
+
+        /* Theme Variables */
+        .theme-cyberpunk {
+            --primary: #00f5ff;
+            --primary-dark: #00c2cb;
+            --secondary: #7b2cbf;
+            --accent: #ff2a6d;
+            --dark: #0d0d1a;
+            --dark-light: #1a1a2e;
+            --text: #e0e0ff;
+            --text-muted: #a0a0c0;
+        }
+
+        .theme-neon {
+            --primary: #00ff9d;
+            --primary-dark: #00cc7d;
+            --secondary: #ff00ff;
+            --accent: #ffdd00;
+            --dark: #0a0a0a;
+            --dark-light: #1a1a1a;
+            --text: #ffffff;
+            --text-muted: #cccccc;
+        }
+
+        .theme-minimal {
+            --primary: #3a86ff;
+            --primary-dark: #2667cc;
+            --secondary: #8338ec;
+            --accent: #ff006e;
+            --dark: #ffffff;
+            --dark-light: #f8f9fa;
+            --text: #212529;
+            --text-muted: #6c757d;
+        }
+
+        .theme-cosmic {
+            --primary: #9d4edd;
+            --primary-dark: #7b2cbf;
+            --secondary: #ff9e00;
+            --accent: #ff2a6d;
+            --dark: #10002b;
+            --dark-light: #240046;
+            --text: #e0aaff;
+            --text-muted: #c77dff;
+        }
+
+        .theme-matrix {
+            --primary: #00ff41;
+            --primary-dark: #00cc34;
+            --secondary: #008f11;
+            --accent: #00ff41;
+            --dark: #0a0a0a;
+            --dark-light: #121212;
+            --text: #00ff41;
+            --text-muted: #008f11;
+        }
+
+        body {
+            background: linear-gradient(135deg, var(--dark) 0%, var(--dark-light) 100%);
+            color: var(--text);
+            font-family: 'Exo 2', sans-serif;
+            line-height: 1.6;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+            transition: all 0.5s ease;
+        }
+
+        /* Safe Animated Background */
+        .bg-animation {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            overflow: hidden;
+            pointer-events: none;
+        }
+
+        .bg-circle {
+            position: absolute;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(0, 245, 255, 0.1) 0%, transparent 70%);
+            animation: float 15s infinite ease-in-out;
+            pointer-events: none;
+        }
+
+        .theme-neon .bg-circle {
+            background: radial-gradient(circle, rgba(0, 255, 157, 0.15) 0%, transparent 70%);
+        }
+
+        .theme-minimal .bg-circle {
+            background: radial-gradient(circle, rgba(58, 134, 255, 0.1) 0%, transparent 70%);
+        }
+
+        .theme-cosmic .bg-circle {
+            background: radial-gradient(circle, rgba(157, 78, 221, 0.15) 0%, transparent 70%);
+        }
+
+        .theme-matrix .bg-circle {
+            background: radial-gradient(circle, rgba(0, 255, 65, 0.1) 0%, transparent 70%);
+        }
+
+        .bg-circle:nth-child(1) {
+            width: 300px;
+            height: 300px;
+            top: 10%;
+            left: 5%;
+            animation-delay: 0s;
+        }
+
+        .bg-circle:nth-child(2) {
+            width: 200px;
+            height: 200px;
+            top: 60%;
+            left: 80%;
+            animation-delay: 5s;
+        }
+
+        .bg-circle:nth-child(3) {
+            width: 400px;
+            height: 400px;
+            top: 30%;
+            left: 60%;
+            animation-delay: 10s;
+        }
+
+        @@keyframes float {
+            0%, 100%
+
+        {
+            transform: translateY(0) scale(1);
+        }
+
+        50% {
+            transform: translateY(-20px) scale(1.05);
+        }
+
+        }
+
+        /* Header */
+        header {
+            background: rgba(13, 13, 26, 0.85);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(0, 245, 255, 0.2);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+            position: relative;
+            z-index: 1000;
+            transition: all 0.5s ease;
+        }
+
+        .theme-neon header {
+            background: rgba(10, 10, 10, 0.85);
+            border-bottom: 1px solid rgba(0, 255, 157, 0.2);
+        }
+
+        .theme-minimal header {
+            background: rgba(255, 255, 255, 0.85);
+            border-bottom: 1px solid rgba(58, 134, 255, 0.2);
+        }
+
+        .theme-cosmic header {
+            background: rgba(16, 0, 43, 0.85);
+            border-bottom: 1px solid rgba(157, 78, 221, 0.2);
+        }
+
+        .theme-matrix header {
+            background: rgba(10, 10, 10, 0.85);
+            border-bottom: 1px solid rgba(0, 255, 65, 0.2);
+        }
+
+        .navbar-brand {
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 700;
+            font-size: 1.8rem;
+            background: linear-gradient(90deg, var(--primary), var(--accent));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+            .navbar-brand svg {
+                width: 30px;
+                height: 30px;
+                filter: drop-shadow(0 0 5px var(--primary));
+            }
+
+        .navbar-nav .nav-link {
+            color: var(--text) !important;
+            font-weight: 500;
+            position: relative;
+            margin: 0 5px;
+            transition: all 0.3s ease;
+        }
+
+            .navbar-nav .nav-link:hover {
+                color: var(--primary) !important;
+            }
+
+            .navbar-nav .nav-link::after {
+                content: '';
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                width: 0;
+                height: 2px;
+                background: linear-gradient(90deg, var(--primary), var(--accent));
+                transition: width 0.3s ease;
+            }
+
+            .navbar-nav .nav-link:hover::after {
+                width: 100%;
+            }
+
+        .navbar-toggler {
+            border: 1px solid var(--primary);
+            color: var(--primary);
+        }
+
+            .navbar-toggler:focus {
+                box-shadow: 0 0 0 0.1rem var(--primary);
+            }
+
+        .developer-badge {
+            background: linear-gradient(90deg, var(--secondary), var(--accent));
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 0 10px rgba(123, 44, 191, 0.5);
+        }
+
+        /* Theme Switcher */
+        .theme-switcher {
+            position: relative;
+            margin-left: 15px;
+        }
+
+        .theme-toggle {
+            background: linear-gradient(90deg, var(--secondary), var(--accent));
+            border: none;
+            color: white;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 0 10px rgba(123, 44, 191, 0.5);
+        }
+
+            .theme-toggle:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 5px 15px rgba(123, 44, 191, 0.7);
+            }
+
+        .theme-dropdown {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            margin-top: 10px;
+            background: rgba(13, 13, 26, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(0, 245, 255, 0.2);
+            border-radius: 10px;
+            padding: 10px;
+            min-width: 200px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(-10px);
+            transition: all 0.3s ease;
+            z-index: 1001;
+        }
+
+            .theme-dropdown.show {
+                opacity: 1;
+                visibility: visible;
+                transform: translateY(0);
+            }
+
+        .theme-option {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            margin-bottom: 5px;
+        }
+
+            .theme-option:hover {
+                background: rgba(255, 255, 255, 0.1);
+            }
+
+            .theme-option.active {
+                background: rgba(0, 245, 255, 0.2);
+                border-left: 3px solid var(--primary);
+            }
+
+        .theme-preview {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            margin-right: 10px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .theme-cyberpunk .theme-preview {
+            background: linear-gradient(135deg, #0d0d1a 0%, #1a1a2e 100%);
+            box-shadow: 0 0 0 2px #00f5ff, 0 0 10px #00f5ff;
+        }
+
+        .theme-neon .theme-preview {
+            background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%);
+            box-shadow: 0 0 0 2px #00ff9d, 0 0 10px #00ff9d;
+        }
+
+        .theme-minimal .theme-preview {
+            background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+            box-shadow: 0 0 0 2px #3a86ff, 0 0 10px #3a86ff;
+        }
+
+        .theme-cosmic .theme-preview {
+            background: linear-gradient(135deg, #10002b 0%, #240046 100%);
+            box-shadow: 0 0 0 2px #9d4edd, 0 0 10px #9d4edd;
+        }
+
+        .theme-matrix .theme-preview {
+            background: linear-gradient(135deg, #0a0a0a 0%, #121212 100%);
+            box-shadow: 0 0 0 2px #00ff41, 0 0 10px #00ff41;
+        }
+
+        /* Main Content */
+        .container {
+            flex: 1;
+            position: relative;
+            z-index: 10;
+        }
+
+        main {
+            padding: 2rem 0;
+            min-height: calc(100vh - 160px);
+            position: relative;
+            z-index: 5;
+        }
+
+        /* Footer */
+        footer {
+            background: rgba(13, 13, 26, 0.9);
+            border-top: 1px solid rgba(0, 245, 255, 0.2);
+            padding: 1.5rem 0;
+            margin-top: auto;
+            position: relative;
+            z-index: 100;
+            transition: all 0.5s ease;
+        }
+
+        .theme-neon footer {
+            background: rgba(10, 10, 10, 0.9);
+            border-top: 1px solid rgba(0, 255, 157, 0.2);
+        }
+
+        .theme-minimal footer {
+            background: rgba(255, 255, 255, 0.9);
+            border-top: 1px solid rgba(58, 134, 255, 0.2);
+        }
+
+        .theme-cosmic footer {
+            background: rgba(16, 0, 43, 0.9);
+            border-top: 1px solid rgba(157, 78, 221, 0.2);
+        }
+
+        .theme-matrix footer {
+            background: rgba(10, 10, 10, 0.9);
+            border-top: 1px solid rgba(0, 255, 65, 0.2);
+        }
+
+        .footer-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+            .footer-content a {
+                color: var(--primary);
+                text-decoration: none;
+                transition: color 0.3s;
+            }
+
+                .footer-content a:hover {
+                    color: var(--accent);
+                    text-decoration: underline;
+                }
+
+        .footer-developer {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 600;
+        }
+
+            .footer-developer svg {
+                width: 20px;
+                height: 20px;
+                fill: var(--accent);
+            }
+
+        /* Digital Elements */
+        .digital-border {
+            position: relative;
+            border: 1px solid rgba(0, 245, 255, 0.3);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+            .digital-border::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                height: 1px;
+                background: linear-gradient(90deg, transparent, var(--primary), transparent);
+                animation: scanline 3s linear infinite;
+            }
+
+        @@keyframes scanline {
+            0%
+
+        {
+            transform: translateX(-100%);
+        }
+
+        100% {
+            transform: translateX(100%);
+        }
+
+        }
+
+        /* Glow Effects */
+        .glow {
+            text-shadow: 0 0 5px currentColor;
+        }
+
+        .glow-primary {
+            text-shadow: 0 0 10px var(--primary);
+        }
+
+        /* Responsive */
+        @@media (max-width: 768px) {
+            .navbar-brand
+
+        {
+            font-size: 1.5rem;
+        }
+
+        .developer-badge, .theme-toggle {
+            font-size: 0.8rem;
+            padding: 4px 10px;
+        }
+
+        .footer-content {
+            flex-direction: column;
+            text-align: center;
+        }
+
+        .theme-dropdown {
+            right: -50px;
+        }
+
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--dark);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(var(--primary), var(--secondary));
+            border-radius: 4px;
+        }
+
+            ::-webkit-scrollbar-thumb:hover {
+                background: linear-gradient(var(--accent), var(--secondary));
+            }
+    </style>
+</head>
+<body class="theme-cyberpunk">
+    <!-- Safe Animated Background -->
+    <div class="bg-animation">
+        <div class="bg-circle"></div>
+        <div class="bg-circle"></div>
+        <div class="bg-circle"></div>
+    </div>
+
+    <header>
+        <nav class="navbar navbar-expand-sm navbar-toggleable-sm border-bottom box-shadow mb-3">
+            <div class="container-fluid">
+                <a class="navbar-brand" asp-area="" asp-controller="Home" asp-action="Index">
+                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M4 16L8 12L4 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                        <path d="M9 20L13 16L9 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                        <path d="M14 8L18 4L22 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                        <path d="M19 12L15 16L19 20" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                        <path d="M4 12H8" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                        <path d="M16 12H20" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                        <path d="M12 4V8" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                        <path d="M12 16V20" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                    </svg>
+                  STAR MULTIMEDIA
+                </a>
+                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target=".navbar-collapse" aria-controls="navbarSupportedContent"
+                        aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+                <div class="navbar-collapse collapse d-sm-inline-flex justify-content-between">
+                    <ul class="navbar-nav flex-grow-1">
+                        <li class="nav-item">
+                            <a class="nav-link text-dark" asp-area="" asp-controller="Home" asp-action="Index">Home</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-dark" asp-area="" asp-controller="ImgToText" asp-action="ImageToTextScreen">Converter</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-dark" asp-area="" asp-controller="Home" asp-action="Privacy">Privacy</a>
+                        </li>
+                    </ul>
+                    <div class="theme-switcher">
+                        <button class="theme-toggle">
+                            <i class="fas fa-palette"></i>
+                            Theme
+                        </button>
+                        <div class="theme-dropdown">
+                            <div class="theme-option theme-cyberpunk active" data-theme="theme-cyberpunk">
+                                <div class="theme-preview"></div>
+                                <span>Cyberpunk</span>
+                            </div>
+                            <div class="theme-option theme-neon" data-theme="theme-neon">
+                                <div class="theme-preview"></div>
+                                <span>Neon Glow</span>
+                            </div>
+                            <div class="theme-option theme-minimal" data-theme="theme-minimal">
+                                <div class="theme-preview"></div>
+                                <span>Minimal</span>
+                            </div>
+                            <div class="theme-option theme-cosmic" data-theme="theme-cosmic">
+                                <div class="theme-preview"></div>
+                                <span>Cosmic</span>
+                            </div>
+                            <div class="theme-option theme-matrix" data-theme="theme-matrix">
+                                <div class="theme-preview"></div>
+                                <span>Matrix</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="developer-badge">
+                        <i class="fas fa-code"></i>
+                        TDM
+                    </div>
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+    <div class="container">
+        <main role="main" class="pb-3">
+            @RenderBody()
+        </main>
+    </div>
+
+    <footer class="border-top footer text-muted">
+        <div class="container">
+            <div class="footer-content">
+                <div>
+                    &copy; <span id="copyright-year">2026</span> STAR MULTIMEDIA
+                </div>
+                <div class="footer-developer">
+                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M16 7C16 9.20914 14.2091 11 12 11C9.79086 11 8 9.20914 8 7C8 4.79086 9.79086 3 12 3C14.2091 3 16 4.79086 16 7Z" stroke="currentColor" stroke-width="2" />
+                        <path d="M12 14C8.13401 14 5 17.134 5 21H19C19 17.134 15.866 14 12 14Z" stroke="currentColor" stroke-width="2" />
+                    </svg>
+                    TARAKANTA DAS MOHAPATRA
+                </div>
+                <div>
+                    <a asp-area="" asp-controller="Home" asp-action="Privacy">Privacy Policy</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script src="~/lib/jquery/dist/jquery.min.js"></script>
+    <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="~/js/site.js" asp-append-version="true"></script>
+
+    <!-- Theme Switcher Script -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Set copyright year
+            const currentYear = new Date().getFullYear();
+            document.getElementById('copyright-year').textContent = `${currentYear}-${currentYear + 1}`;
+
+            // Theme switcher functionality
+            const themeToggle = document.querySelector('.theme-toggle');
+            const themeDropdown = document.querySelector('.theme-dropdown');
+            const themeOptions = document.querySelectorAll('.theme-option');
+
+            // Toggle dropdown
+            themeToggle.addEventListener('click', function(e) {
+                e.stopPropagation();
+                themeDropdown.classList.toggle('show');
+            });
+
+            // Close dropdown when clicking outside
+            document.addEventListener('click', function() {
+                themeDropdown.classList.remove('show');
+            });
+
+            // Prevent dropdown close when clicking inside
+            themeDropdown.addEventListener('click', function(e) {
+                e.stopPropagation();
+            });
+
+            // Change theme
+            themeOptions.forEach(option => {
+                option.addEventListener('click', function() {
+                    const theme = this.getAttribute('data-theme');
+
+                    // Update body class
+                    document.body.className = theme;
+
+                    // Update active option
+                    themeOptions.forEach(opt => opt.classList.remove('active'));
+                    this.classList.add('active');
+
+                    // Close dropdown
+                    themeDropdown.classList.remove('show');
+
+                    // Save theme preference
+                    localStorage.setItem('selected-theme', theme);
+                });
+            });
+
+            // Load saved theme
+            const savedTheme = localStorage.getItem('selected-theme');
+            if (savedTheme) {
+                document.body.className = savedTheme;
+                themeOptions.forEach(option => {
+                    if (option.getAttribute('data-theme') === savedTheme) {
+                        option.classList.add('active');
+                    } else {
+                        option.classList.remove('active');
+                    }
+                });
+            }
+
+            // Animate SVG paths on page load
+            const paths = document.querySelectorAll('svg path');
+            paths.forEach(path => {
+                const length = path.getTotalLength();
+                path.style.strokeDasharray = length;
+                path.style.strokeDashoffset = length;
+
+                setTimeout(() => {
+                    path.style.transition = 'stroke-dashoffset 2s ease-in-out';
+                    path.style.strokeDashoffset = '0';
+                }, 500);
+            });
+
+            // Add floating animation to background circles
+            const circles = document.querySelectorAll('.bg-circle');
+            circles.forEach((circle, index) => {
+                const duration = 15 + Math.random() * 10;
+                const delay = Math.random() * 10;
+                circle.style.animation = `float ${duration}s infinite ease-in-out ${delay}s`;
+            });
+
+            // Add glow effect to navbar links on hover
+            document.querySelectorAll('.navbar-nav .nav-link').forEach(link => {
+                link.addEventListener('mouseenter', function() {
+                    this.classList.add('glow', 'glow-primary');
+                });
+
+                link.addEventListener('mouseleave', function() {
+                    this.classList.remove('glow', 'glow-primary');
+                });
+            });
+        });
+    </script>
+</body>
+</html>

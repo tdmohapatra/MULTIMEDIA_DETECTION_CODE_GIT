@@ -1,0 +1,134 @@
+﻿@*
+    For more information on enabling MVC for empty projects, visit https://go.microsoft.com/fwlink/?LinkID=397860
+*@
+@{
+}
+<!-- Views/Detection/Index.cshtml -->
+@{
+    ViewData["Title"] = "Real-Time Detection";
+}
+@section Scripts {
+    <script src="~/js/realtime-detection.js"></script>
+}
+
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title">Live Camera Feed</h5>
+                </div>
+                <div class="card-body text-center">
+                    <video id="videoFeed" width="640" height="480" autoplay playsinline class="border rounded"></video>
+                    <canvas id="processingCanvas" width="640" height="480" style="display: none;"></canvas>
+                    <div class="mt-2">
+                        <button id="startBtn" class="btn btn-success">Start Detection</button>
+                        <button id="stopBtn" class="btn btn-danger" disabled>Stop Detection</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <!-- Statistics Card -->
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h5 class="card-title">Detection Statistics</h5>
+                </div>
+                <div class="card-body">
+                    <div id="statsDisplay">
+                        <div>Faces: <span id="faceCount">0</span></div>
+                        <div>Eyes: <span id="eyeCount">0</span></div>
+                        <div>Movement: <span id="movementStatus">No</span></div>
+                        <div>Movement Level: <span id="movementLevel">0%</span></div>
+                        <div>Text Detected: <span id="textStatus">No</span></div>
+                        <div>FPS: <span id="fps">0</span></div>
+                        <div>Total Frames: <span id="totalFrames">0</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Movement Meter -->
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h5 class="card-title">Movement Meter</h5>
+                </div>
+                <div class="card-body">
+                    <div class="progress" style="height: 30px;">
+                        <div id="movementProgress" class="progress-bar" role="progressbar" style="width: 0%; background-color: green;">
+                            <span id="movementText">0%</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings Card -->
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h5 class="card-title">Detection Settings</h5>
+                </div>
+                <div class="card-body">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="enableFaceDetection" checked>
+                        <label class="form-check-label" for="enableFaceDetection">
+                            Face Detection
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="enableEyeDetection" checked>
+                        <label class="form-check-label" for="enableEyeDetection">
+                            Eye Detection
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="enableMovementDetection" checked>
+                        <label class="form-check-label" for="enableMovementDetection">
+                            Movement Detection
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="enableTextDetection" checked>
+                        <label class="form-check-label" for="enableTextDetection">
+                            Text Detection
+                        </label>
+                    </div>
+                    <div class="mt-2">
+                        <label for="sensitivityRange" class="form-label">Sensitivity: <span id="sensitivityValue">50</span>%</label>
+                        <input type="range" class="form-range" id="sensitivityRange" min="1" max="100" value="50">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-3">
+        <!-- Notifications Card -->
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title">Real-time Notifications</h5>
+                </div>
+                <div class="card-body">
+                    <div id="notifications" style="height: 200px; overflow-y: auto; background-color: #f8f9fa; padding: 10px; border-radius: 5px;">
+                        <!-- Notifications will appear here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Logs Card -->
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title">System Logs</h5>
+                </div>
+                <div class="card-body">
+                    <div id="logs" style="height: 200px; overflow-y: auto; background-color: #f8f9fa; padding: 10px; border-radius: 5px; font-family: monospace; font-size: 12px;">
+                        <!-- Logs will appear here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+

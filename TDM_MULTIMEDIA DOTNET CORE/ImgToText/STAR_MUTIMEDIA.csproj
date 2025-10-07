@@ -1,0 +1,27 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+	<PropertyGroup>
+		<TargetFramework>net8.0</TargetFramework>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="DocX" Version="5.0.0" />
+		<PackageReference Include="Mediapipe.Net" Version="0.9.2" />
+		<PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.23.0" />
+		<PackageReference Include="OpenCvSharp4" Version="4.11.0.20250507" />
+		<PackageReference Include="OpenCvSharp4.Extensions" Version="4.11.0.20250507" />
+		<PackageReference Include="OpenCvSharp4.runtime.win" Version="4.11.0.20250507" />
+		<PackageReference Include="Tesseract" Version="5.2.0" />
+		<PackageReference Include="System.Drawing.Common" Version="9.0.9" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Folder Include="libs\" />
+		<Folder Include="Uploads\cascades\" />
+		<Folder Include="Uploads\tessdata\" />
+	</ItemGroup>
+
+</Project>

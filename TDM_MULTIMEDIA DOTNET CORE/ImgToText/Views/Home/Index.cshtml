@@ -1,0 +1,1429 @@
+﻿@* @{
+    Layout = null;
+}
+ *@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>STAR MULTIMEDIA - Advanced Digital Solutions</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --primary-light: #818cf8;
+            --secondary: #8b5cf6;
+            --accent: #ec4899;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --dark: #0f172a;
+            --dark-light: #1e293b;
+            --light: #f8fafc;
+            --text: #e2e8f0;
+            --text-muted: #94a3b8;
+        }
+
+        /* Theme variables */
+        .theme-default {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --primary-light: #818cf8;
+            --secondary: #8b5cf6;
+            --accent: #ec4899;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --dark: #0f172a;
+            --dark-light: #1e293b;
+            --light: #f8fafc;
+            --text: #e2e8f0;
+            --text-muted: #94a3b8;
+        }
+
+        .theme-ocean {
+            --primary: #0ea5e9;
+            --primary-dark: #0284c7;
+            --primary-light: #38bdf8;
+            --secondary: #0891b2;
+            --accent: #06b6d4;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --dark: #0c4a6e;
+            --dark-light: #0369a1;
+            --light: #f0f9ff;
+            --text: #e0f2fe;
+            --text-muted: #7dd3fc;
+        }
+
+        .theme-forest {
+            --primary: #059669;
+            --primary-dark: #047857;
+            --primary-light: #10b981;
+            --secondary: #059669;
+            --accent: #10b981;
+            --success: #10b981;
+            --warning: #d97706;
+            --dark: #064e3b;
+            --dark-light: #065f46;
+            --light: #ecfdf5;
+            --text: #d1fae5;
+            --text-muted: #6ee7b7;
+        }
+
+        .theme-sunset {
+            --primary: #ea580c;
+            --primary-dark: #c2410c;
+            --primary-light: #fb923c;
+            --secondary: #dc2626;
+            --accent: #f97316;
+            --success: #16a34a;
+            --warning: #eab308;
+            --dark: #431407;
+            --dark-light: #7c2d12;
+            --light: #fff7ed;
+            --text: #fed7aa;
+            --text-muted: #fdba74;
+        }
+
+        .theme-purple {
+            --primary: #9333ea;
+            --primary-dark: #7c3aed;
+            --primary-light: #a855f7;
+            --secondary: #c026d3;
+            --accent: #d946ef;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --dark: #3f0f6f;
+            --dark-light: #581c87;
+            --light: #faf5ff;
+            --text: #e9d5ff;
+            --text-muted: #c084fc;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--dark);
+            color: var(--text);
+            line-height: 1.6;
+            overflow-x: hidden;
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+
+        /* Animated Background */
+        .animated-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -2;
+            background: radial-gradient(circle at 15% 50%, rgba(var(--primary-rgb, 99, 102, 241), 0.1) 0%, transparent 25%), radial-gradient(circle at 85% 30%, rgba(var(--secondary-rgb, 139, 92, 246), 0.1) 0%, transparent 25%), radial-gradient(circle at 50% 80%, rgba(var(--accent-rgb, 236, 72, 153), 0.05) 0%, transparent 25%);
+            animation: bgShift 20s ease-in-out infinite;
+        }
+
+        @@keyframes bgShift {
+            0%, 100%
+
+        {
+            transform: scale(1) rotate(0deg);
+        }
+
+        50% {
+            transform: scale(1.05) rotate(1deg);
+        }
+
+        }
+
+        /* Floating Particles */
+        .particles {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+        }
+
+        .particle {
+            position: absolute;
+            background: var(--primary-light);
+            border-radius: 50%;
+            opacity: 0.3;
+            animation: float 15s infinite linear;
+        }
+
+        @@keyframes float {
+            0%
+
+        {
+            transform: translateY(0) translateX(0);
+        }
+
+        25% {
+            transform: translateY(-20px) translateX(10px);
+        }
+
+        50% {
+            transform: translateY(0) translateX(20px);
+        }
+
+        75% {
+            transform: translateY(20px) translateX(10px);
+        }
+
+        100% {
+            transform: translateY(0) translateX(0);
+        }
+
+        }
+
+        /* Container */
+        .container {
+            width: 100%;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        /* Header */
+        header {
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            position: fixed;
+            width: 100%;
+            z-index: 1000;
+            transition: all 0.3s ease;
+        }
+
+        .navbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 0;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 1.8rem;
+            font-weight: 800;
+            color: white;
+            text-decoration: none;
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+            .logo-icon::before {
+                content: '';
+                position: absolute;
+                width: 20px;
+                height: 20px;
+                background: white;
+                border-radius: 4px;
+            }
+
+            .logo-icon::after {
+                content: '';
+                position: absolute;
+                width: 8px;
+                height: 8px;
+                background: var(--accent);
+                border-radius: 50%;
+                bottom: 6px;
+                right: 6px;
+            }
+
+        .nav-links {
+            display: flex;
+            gap: 30px;
+        }
+
+            .nav-links a {
+                color: var(--text);
+                text-decoration: none;
+                font-weight: 500;
+                position: relative;
+                transition: color 0.3s;
+            }
+
+                .nav-links a:hover {
+                    color: white;
+                }
+
+                .nav-links a::after {
+                    content: '';
+                    position: absolute;
+                    bottom: -5px;
+                    left: 0;
+                    width: 0;
+                    height: 2px;
+                    background: linear-gradient(90deg, var(--primary), var(--accent));
+                    transition: width 0.3s;
+                }
+
+                .nav-links a:hover::after {
+                    width: 100%;
+                }
+
+        .nav-actions {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .cta-button {
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 4px 15px rgba(var(--primary-rgb, 99, 102, 241), 0.3);
+        }
+
+            .cta-button:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 6px 20px rgba(var(--primary-rgb, 99, 102, 241), 0.4);
+            }
+
+        /* Theme Switcher */
+        .theme-switcher {
+            position: relative;
+        }
+
+        .theme-toggle {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            color: var(--text);
+        }
+
+            .theme-toggle:hover {
+                background: rgba(255, 255, 255, 0.15);
+                transform: translateY(-2px);
+            }
+
+        .theme-options {
+            position: absolute;
+            top: 50px;
+            right: 0;
+            background: rgba(30, 41, 59, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            padding: 15px;
+            width: 180px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(-10px);
+            transition: all 0.3s ease;
+            z-index: 1001;
+        }
+
+            .theme-options.active {
+                opacity: 1;
+                visibility: visible;
+                transform: translateY(0);
+            }
+
+        .theme-option {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.3s;
+            margin-bottom: 5px;
+        }
+
+            .theme-option:hover {
+                background: rgba(255, 255, 255, 0.1);
+            }
+
+            .theme-option.active {
+                background: rgba(var(--primary-rgb, 99, 102, 241), 0.2);
+            }
+
+        .theme-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .theme-default .theme-color {
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+        }
+
+        .theme-ocean .theme-color {
+            background: linear-gradient(135deg, #0ea5e9, #0891b2);
+        }
+
+        .theme-forest .theme-color {
+            background: linear-gradient(135deg, #059669, #059669);
+        }
+
+        .theme-sunset .theme-color {
+            background: linear-gradient(135deg, #ea580c, #dc2626);
+        }
+
+        .theme-purple .theme-color {
+            background: linear-gradient(135deg, #9333ea, #c026d3);
+        }
+
+        /* Hero Section */
+        .hero {
+            padding: 180px 0 120px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero-content {
+            max-width: 800px;
+            margin: 0 auto;
+            text-align: center;
+            position: relative;
+            z-index: 1;
+        }
+
+        .hero h1 {
+            font-size: 3.5rem;
+            font-weight: 800;
+            margin-bottom: 24px;
+            line-height: 1.1;
+            background: linear-gradient(90deg, #fff, var(--primary-light));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .hero p {
+            font-size: 1.25rem;
+            color: var(--text-muted);
+            margin-bottom: 40px;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .hero-buttons {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            backdrop-filter: blur(10px);
+        }
+
+            .btn-secondary:hover {
+                background: rgba(255, 255, 255, 0.15);
+                transform: translateY(-2px);
+            }
+
+        /* Section Common Styles */
+        .section {
+            padding: 100px 0;
+            position: relative;
+        }
+
+        .section-title {
+            text-align: center;
+            margin-bottom: 60px;
+        }
+
+            .section-title h2 {
+                font-size: 2.5rem;
+                font-weight: 700;
+                margin-bottom: 16px;
+                position: relative;
+                display: inline-block;
+            }
+
+                .section-title h2::after {
+                    content: '';
+                    position: absolute;
+                    bottom: -10px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    width: 80px;
+                    height: 4px;
+                    background: linear-gradient(90deg, var(--primary), var(--accent));
+                    border-radius: 2px;
+                }
+
+            .section-title p {
+                max-width: 600px;
+                margin: 0 auto;
+                color: var(--text-muted);
+                font-size: 1.1rem;
+            }
+
+        /* Features Section */
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+        }
+
+        .feature-card {
+            background: rgba(30, 41, 59, 0.5);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            padding: 30px;
+            transition: all 0.3s;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            position: relative;
+            overflow: hidden;
+        }
+
+            .feature-card::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: linear-gradient(135deg, rgba(var(--primary-rgb, 99, 102, 241), 0.1), rgba(var(--secondary-rgb, 139, 92, 246), 0.05));
+                opacity: 0;
+                transition: opacity 0.3s;
+            }
+
+            .feature-card:hover {
+                transform: translateY(-10px);
+                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+                border-color: rgba(var(--primary-rgb, 99, 102, 241), 0.3);
+            }
+
+                .feature-card:hover::before {
+                    opacity: 1;
+                }
+
+        .feature-icon {
+            width: 70px;
+            height: 70px;
+            background: rgba(var(--primary-rgb, 99, 102, 241), 0.1);
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 20px;
+            position: relative;
+        }
+
+            .feature-icon i {
+                font-size: 1.8rem;
+                background: linear-gradient(135deg, var(--primary), var(--secondary));
+                -webkit-background-clip: text;
+                background-clip: text;
+                color: transparent;
+            }
+
+        .feature-card h3 {
+            font-size: 1.5rem;
+            margin-bottom: 15px;
+            color: white;
+        }
+
+        .feature-card p {
+            color: var(--text-muted);
+            margin-bottom: 20px;
+        }
+
+        .feature-link {
+            color: var(--primary-light);
+            text-decoration: none;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: gap 0.3s;
+        }
+
+            .feature-link:hover {
+                gap: 12px;
+            }
+
+        /* Modules Section */
+        .modules {
+            background: rgba(15, 23, 42, 0.7);
+        }
+
+        .modules-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 30px;
+        }
+
+        .module-card {
+            background: rgba(30, 41, 59, 0.5);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            overflow: hidden;
+            transition: all 0.3s;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+            .module-card:hover {
+                transform: translateY(-10px);
+                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+                border-color: rgba(var(--primary-rgb, 99, 102, 241), 0.3);
+            }
+
+        .module-header {
+            padding: 25px;
+            background: rgba(var(--primary-rgb, 99, 102, 241), 0.1);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+            .module-header h3 {
+                font-size: 1.5rem;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                color: white;
+            }
+
+            .module-header i {
+                background: linear-gradient(135deg, var(--primary), var(--secondary));
+                -webkit-background-clip: text;
+                background-clip: text;
+                color: transparent;
+            }
+
+        .module-body {
+            padding: 25px;
+        }
+
+        .module-features {
+            list-style: none;
+            margin-bottom: 25px;
+        }
+
+            .module-features li {
+                margin-bottom: 10px;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                color: var(--text-muted);
+            }
+
+                .module-features li i {
+                    color: var(--success);
+                }
+
+        /* Stats Section */
+        .stats {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            text-align: center;
+            padding: 80px 0;
+            position: relative;
+            overflow: hidden;
+        }
+
+            .stats::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 100" fill="%23ffffff" opacity="0.1"><polygon points="1000,100 1000,0 0,100"></polygon></svg>');
+                background-size: cover;
+            }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 30px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .stat-item h3 {
+            font-size: 3rem;
+            margin-bottom: 10px;
+            font-weight: 800;
+        }
+
+        .stat-item p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        /* CTA Section */
+        .cta-section {
+            text-align: center;
+            padding: 100px 0;
+            background: rgba(15, 23, 42, 0.7);
+            position: relative;
+        }
+
+            .cta-section h2 {
+                font-size: 2.5rem;
+                margin-bottom: 20px;
+                font-weight: 700;
+            }
+
+            .cta-section p {
+                max-width: 600px;
+                margin: 0 auto 30px;
+                color: var(--text-muted);
+                font-size: 1.1rem;
+            }
+
+        /* Footer */
+        footer {
+            background: rgba(15, 23, 42, 0.9);
+            padding: 60px 0 30px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .footer-content {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 40px;
+            margin-bottom: 40px;
+        }
+
+        .footer-column h3 {
+            font-size: 1.3rem;
+            margin-bottom: 20px;
+            position: relative;
+            display: inline-block;
+            color: white;
+        }
+
+            .footer-column h3::after {
+                content: '';
+                position: absolute;
+                bottom: -8px;
+                left: 0;
+                width: 40px;
+                height: 3px;
+                background: var(--primary);
+            }
+
+        .footer-links {
+            list-style: none;
+        }
+
+            .footer-links li {
+                margin-bottom: 12px;
+            }
+
+            .footer-links a {
+                color: var(--text-muted);
+                text-decoration: none;
+                transition: color 0.3s;
+            }
+
+                .footer-links a:hover {
+                    color: var(--primary-light);
+                }
+
+        .social-links {
+            display: flex;
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+            .social-links a {
+                width: 40px;
+                height: 40px;
+                background: rgba(255, 255, 255, 0.1);
+                border-radius: 8px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.3s;
+            }
+
+                .social-links a:hover {
+                    background: var(--primary);
+                    transform: translateY(-3px);
+                }
+
+        .copyright {
+            text-align: center;
+            padding-top: 30px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        /* Responsive */
+        @@media (max-width: 768px) {
+            .nav-links
+
+        {
+            display: none;
+        }
+
+        .hero h1 {
+            font-size: 2.5rem;
+        }
+
+        .hero-buttons {
+            flex-direction: column;
+            align-items: center;
+        }
+
+            .hero-buttons a {
+                width: 100%;
+                max-width: 300px;
+                text-align: center;
+            }
+
+        .section-title h2 {
+            font-size: 2rem;
+        }
+
+        .theme-options {
+            right: -50px;
+        }
+
+        }
+
+        /* Animation Classes */
+        .fade-in {
+            opacity: 0;
+            transform: translateY(30px);
+            transition: all 0.6s ease;
+        }
+
+            .fade-in.visible {
+                opacity: 1;
+                transform: translateY(0);
+            }
+    </style>
+</head>
+<body class="theme-default">
+    <!-- Animated Background -->
+    <div class="animated-bg"></div>
+
+    <!-- Floating Particles -->
+    <div class="particles" id="particles"></div>
+
+    <!-- Header -->
+    <header>
+       @*  <div class="container">
+            <nav class="navbar">
+                <a href="#" class="logo">
+                    <div class="logo-icon"></div>
+                    STAR_MULTIMEDIA
+                </a>
+
+                <div class="nav-links">
+                    <a href="#features">Features</a>
+                    <a href="#modules">Modules</a>
+                    <a href="#about">About</a>
+                    <a href="#contact">Contact</a>
+                </div>
+
+                <div class="nav-actions">
+                    <!-- Theme Switcher -->
+                    <div class="theme-switcher">
+                        <div class="theme-toggle" id="themeToggle">
+                            <i class="fas fa-palette"></i>
+                        </div>
+                        <div class="theme-options" id="themeOptions">
+                            <div class="theme-option theme-default active" data-theme="theme-default">
+                                <div class="theme-color"></div>
+                                <span>Default</span>
+                            </div>
+                            <div class="theme-option theme-ocean" data-theme="theme-ocean">
+                                <div class="theme-color"></div>
+                                <span>Ocean</span>
+                            </div>
+                            <div class="theme-option theme-forest" data-theme="theme-forest">
+                                <div class="theme-color"></div>
+                                <span>Forest</span>
+                            </div>
+                            <div class="theme-option theme-sunset" data-theme="theme-sunset">
+                                <div class="theme-color"></div>
+                                <span>Sunset</span>
+                            </div>
+                            <div class="theme-option theme-purple" data-theme="theme-purple">
+                                <div class="theme-color"></div>
+                                <span>Purple</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <a href="/ImgToText/ImageToTextScreen" class="cta-button">
+                        <i class="fas fa-rocket"></i> Launch App
+                    </a>
+                </div>
+            </nav>
+        </div> *@
+    </header>
+
+    <!-- Hero Section -->
+  @*   <div class="container">
+        <main role="main" class="pb-3">
+            <!-- Demo content to show theme changes -->
+            <div class="row justify-content-center">
+                <div class="col-md-8">
+               
+                    <div class="card digital-border p-4 mb-4">
+                        <h2 class="text-center mb-4">Image to Text Converter</h2>
+                        <p class="text-center">Experience the power of STAR_MULTIMEDIA technology with our advanced OCR solution. Convert any image to editable text with precision and speed.</p>
+
+                        <div class="text-center mt-4">
+                            <button class="btn" style="background: linear-gradient(90deg, var(--primary), var(--accent)); color: white; border: none; padding: 10px 20px; border-radius: 25px;">
+                                <i class="fas fa-upload me-2"></i>Upload Image
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="row text-center">
+                        <div class="col-md-4 mb-3">
+                            <div class="p-3 digital-border">
+                                <i class="fas fa-bolt fa-2x mb-2" style="color: var(--primary);"></i>
+                                <h5>Fast Processing</h5>
+                                <p class="small">Convert images to text in seconds</p>
+                            </div>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <div class="p-3 digital-border">
+                                <i class="fas fa-shield-alt fa-2x mb-2" style="color: var(--primary);"></i>
+                                <h5>Secure</h5>
+                                <p class="small">Your data remains private</p>
+                            </div>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <div class="p-3 digital-border">
+                                <i class="fas fa-language fa-2x mb-2" style="color: var(--primary);"></i>
+                                <h5>Multi-language</h5>
+                                <p class="small">Supports 50+ languages</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div> *@
+
+    <section class="hero">
+        <div class="container">
+            <div class="hero-content">
+                <h1 class="fade-in">Transform Your Digital Experience</h1>
+                <p class="fade-in">STAR MULTIMEDIA offers cutting-edge solutions for image processing, text extraction, and multimedia management with AI-powered technology.</p>
+                <div class="hero-buttons">
+                    <a href="/Home/ImageToTextBasic" class="cta-button fade-in">
+                        <i class="fas fa-camera"></i> Try Image to Text
+                    </a>
+                    <a href="#features" class="btn-secondary fade-in">
+                        <i class="fas fa-info-circle"></i> Learn More
+                    </a>
+                </div>
+         
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="section">
+        <div class="container">
+            <div class="section-title">
+                <h2>Why Choose STAR MULTIMEDIA?</h2>
+                <p>Our platform combines advanced technology with user-friendly interfaces to deliver exceptional results.</p>
+                <div class="theme-switcher">
+                    <div class="theme-toggle" id="themeToggle">
+                        <i class="fas fa-palette"></i>
+                    </div>
+                    <div class="theme-options" id="themeOptions">
+                        <div class="theme-option theme-default active" data-theme="theme-default">
+                            <div class="theme-color"></div>
+                            <span>Default</span>
+                        </div>
+                        <div class="theme-option theme-ocean" data-theme="theme-ocean">
+                            <div class="theme-color"></div>
+                            <span>Ocean</span>
+                        </div>
+                        <div class="theme-option theme-forest" data-theme="theme-forest">
+                            <div class="theme-color"></div>
+                            <span>Forest</span>
+                        </div>
+                        <div class="theme-option theme-sunset" data-theme="theme-sunset">
+                            <div class="theme-color"></div>
+                            <span>Sunset</span>
+                        </div>
+                        <div class="theme-option theme-purple" data-theme="theme-purple">
+                            <div class="theme-color"></div>
+                            <span>Purple</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="features-grid">
+                <div class="feature-card fade-in">
+                    <div class="feature-icon">
+                        <i class="fas fa-robot"></i>
+                    </div>
+                    <h3>AI-Powered OCR</h3>
+                    <p>Extract text from images with industry-leading accuracy using our advanced Optical Character Recognition technology.</p>
+                    <a href="#" class="feature-link">
+                        Learn more <i class="fas fa-arrow-right"></i>
+                    </a>
+                </div>
+
+                <div class="feature-card fade-in">
+                    <div class="feature-icon">
+                        <i class="fas fa-bolt"></i>
+                    </div>
+                    <h3>Lightning Fast Processing</h3>
+                    <p>Process images and extract text in seconds with our optimized algorithms and cloud infrastructure.</p>
+                    <a href="#" class="feature-link">
+                        Learn more <i class="fas fa-arrow-right"></i>
+                    </a>
+                </div>
+
+                <div class="feature-card fade-in">
+                    <div class="feature-icon">
+                        <i class="fas fa-shield-alt"></i>
+                    </div>
+                    <h3>Secure & Private</h3>
+                    <p>Your data is protected with enterprise-grade security. We never store or share your processed images.</p>
+                    <a href="#" class="feature-link">
+                        Learn more <i class="fas fa-arrow-right"></i>
+                    </a>
+                </div>
+
+                <div class="feature-card fade-in">
+                    <div class="feature-icon">
+                        <i class="fas fa-language"></i>
+                    </div>
+                    <h3>Multi-Language Support</h3>
+                    <p>Extract text in multiple languages including English, French, German, Spanish, and more.</p>
+                    <a href="#" class="feature-link">
+                        Learn more <i class="fas fa-arrow-right"></i>
+                    </a>
+                </div>
+
+                <div class="feature-card fade-in">
+                    <div class="feature-icon">
+                        <i class="fas fa-mobile-alt"></i>
+                    </div>
+                    <h3>Responsive Design</h3>
+                    <p>Access our tools from any device - desktop, tablet, or mobile - with our fully responsive interface.</p>
+                    <a href="#" class="feature-link">
+                        Learn more <i class="fas fa-arrow-right"></i>
+                    </a>
+                </div>
+
+                <div class="feature-card fade-in">
+                    <div class="feature-icon">
+                        <i class="fas fa-cloud-download-alt"></i>
+                    </div>
+                    <h3>Multiple Export Options</h3>
+                    <p>Save your extracted text in various formats including TXT, DOCX, PDF, and more for maximum flexibility.</p>
+                    <a href="#" class="feature-link">
+                        Learn more <i class="fas fa-arrow-right"></i>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Modules Section -->
+    <section id="modules" class="section modules">
+        <div class="container">
+            <div class="section-title">
+                <h2>Our Powerful Modules</h2>
+                <p>Discover the range of multimedia tools designed to streamline your workflow and enhance productivity.</p>
+            </div>
+
+            <div class="modules-grid">
+                <div class="module-card fade-in">
+                    <div class="module-header">
+                        <h3><i class="fas fa-camera"></i> Image to Text Converter</h3>
+                    </div>
+                    <div class="module-body">
+                        <p>Advanced OCR technology that extracts text from images, documents, and camera captures with high accuracy.</p>
+                        <ul class="module-features">
+                            <li><i class="fas fa-check"></i> Camera & File Upload</li>
+                            <li><i class="fas fa-check"></i> Multi-Language Support</li>
+                            <li><i class="fas fa-check"></i> Batch Processing</li>
+                            <li><i class="fas fa-check"></i> Text Enhancement</li>
+                            <li><i class="fas fa-check"></i> Multiple Export Formats</li>
+                        </ul>
+                        <a href="/imgtotext/ImageToTextScreen" class="cta-button">
+                            <i class="fas fa-external-link-alt"></i> Open Module
+                        </a>
+                    </div>
+                </div>
+
+                <div class="module-card fade-in">
+                    <div class="module-header">
+                        <h3><i class="fas fa-file-image"></i> Document Processing</h3>
+                    </div>
+                    <div class="module-body">
+                        <p>Convert scanned documents, PDFs, and images into editable and searchable text with layout preservation.</p>
+                        <ul class="module-features">
+                            <li><i class="fas fa-check"></i> PDF Text Extraction</li>
+                            <li><i class="fas fa-check"></i> Layout Analysis</li>
+                            <li><i class="fas fa-check"></i> Table Recognition</li>
+                            <li><i class="fas fa-check"></i> Format Preservation</li>
+                            <li><i class="fas fa-check"></i> Batch Document Processing</li>
+                        </ul>
+                        <a href="#" class="cta-button">
+                            <i class="fas fa-external-link-alt"></i> Coming Soon
+                        </a>
+                    </div>
+                </div>
+
+                <div class="module-card fade-in">
+                    <div class="module-header">
+                        <h3><i class="fas fa-video"></i> Video Content Analysis</h3>
+                    </div>
+                    <div class="module-body">
+                        <p>Extract text and metadata from video frames, generate captions, and analyze visual content automatically.</p>
+                        <ul class="module-features">
+                            <li><i class="fas fa-check"></i> Frame-by-Frame Analysis</li>
+                            <li><i class="fas fa-check"></i> Subtitle Generation</li>
+                            <li><i class="fas fa-check"></i> Content Moderation</li>
+                            <li><i class="fas fa-check"></i> Object Recognition</li>
+                            <li><i class="fas fa-check"></i> Scene Detection</li>
+                        </ul>
+                        <a href="/DetectionView/Index" class="cta-button">
+                            <i class="fas fa-external-link-alt"></i> IN LIVE
+                        </a>
+                    </div>
+                </div>
+
+                <div class="module-card fade-in">
+                    <div class="module-header">
+                        <h3><i class="fas fa-chart-bar"></i> Data Visualization</h3>
+                    </div>
+                    <div class="module-body">
+                        <p>Transform extracted data into insightful visualizations, charts, and reports for better decision making.</p>
+                        <ul class="module-features">
+                            <li><i class="fas fa-check"></i> Interactive Charts</li>
+                            <li><i class="fas fa-check"></i> Report Generation</li>
+                            <li><i class="fas fa-check"></i> Data Export</li>
+                            <li><i class="fas fa-check"></i> Custom Dashboards</li>
+                            <li><i class="fas fa-check"></i> Real-time Analytics</li>
+                        </ul>
+                        <a href="#" class="cta-button">
+                            <i class="fas fa-external-link-alt"></i> Coming Soon
+                        </a>
+                    </div>
+                </div>
+
+                <div class="module-card fade-in">
+                    <div class="module-header">
+                        <h3><i class="fas fa-cloud"></i> Cloud Integration</h3>
+                    </div>
+                    <div class="module-body">
+                        <p>Seamlessly connect with cloud storage services and collaborate with team members in real-time.</p>
+                        <ul class="module-features">
+                            <li><i class="fas fa-check"></i> Cloud Storage Sync</li>
+                            <li><i class="fas fa-check"></i> Team Collaboration</li>
+                            <li><i class="fas fa-check"></i> Version Control</li>
+                            <li><i class="fas fa-check"></i> API Access</li>
+                            <li><i class="fas fa-check"></i> Automated Workflows</li>
+                        </ul>
+                        <a href="#" class="cta-button">
+                            <i class="fas fa-external-link-alt"></i> Coming Soon
+                        </a>
+                    </div>
+                </div>
+
+                <div class="module-card fade-in">
+                    <div class="module-header">
+                        <h3><i class="fas fa-cogs"></i> Advanced Processing</h3>
+                    </div>
+                    <div class="module-body">
+                        <p>Leverage advanced image processing, enhancement, and analysis tools for specialized use cases.</p>
+                        <ul class="module-features">
+                            <li><i class="fas fa-check"></i> Image Enhancement</li>
+                            <li><i class="fas fa-check"></i> Noise Reduction</li>
+                            <li><i class="fas fa-check"></i> Color Correction</li>
+                            <li><i class="fas fa-check"></i> Pattern Recognition</li>
+                            <li><i class="fas fa-check"></i> Custom Algorithms</li>
+                        </ul>
+                        <a href="#" class="cta-button">
+                            <i class="fas fa-external-link-alt"></i> Coming Soon
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Stats Section -->
+    <section class="stats">
+        <div class="container">
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <h3>99%</h3>
+                    <p>Accuracy Rate</p>
+                </div>
+                <div class="stat-item">
+                    <h3>50K+</h3>
+                    <p>Images Processed</p>
+                </div>
+                <div class="stat-item">
+                    <h3>15+</h3>
+                    <p>Supported Languages</p>
+                </div>
+                <div class="stat-item">
+                    <h3>24/7</h3>
+                    <p>Uptime</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="cta-section">
+        <div class="container">
+            <h2>Ready to Transform Your Workflow?</h2>
+            <p>Join thousands of users who are already saving time and increasing productivity with STAR MULTIMEDIA.</p>
+            <a href="/ImgToText/ImageToTextScreen" class="cta-button">
+                <i class="fas fa-rocket"></i> Get Started Now
+            </a>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-column">
+                    <h3>STAR MULTIMEDIA</h3>
+                    <p>Advanced digital solutions for image processing, text extraction, and multimedia management.</p>
+                    <div class="social-links">
+                        <a href="#"><i class="fab fa-twitter"></i></a>
+                        <a href="#"><i class="fab fa-facebook-f"></i></a>
+                        <a href="#"><i class="fab fa-linkedin-in"></i></a>
+                        <a href="#"><i class="fab fa-github"></i></a>
+                    </div>
+                </div>
+
+                <div class="footer-column">
+                    <h3>Modules</h3>
+                    <ul class="footer-links">
+                        <li><a href="/ImgToText/ImageToTextScreen">Image to Text Converter</a></li>
+                        <li><a href="#">Document Processing</a></li>
+                        <li><a href="#">Video Content Analysis</a></li>
+                        <li><a href="#">Data Visualization</a></li>
+                        <li><a href="#">Cloud Integration</a></li>
+                    </ul>
+                </div>
+
+                <div class="footer-column">
+                    <h3>Resources</h3>
+                    <ul class="footer-links">
+                        <li><a href="#">Documentation</a></li>
+                        <li><a href="#">Tutorials</a></li>
+                        <li><a href="#">API Reference</a></li>
+                        <li><a href="#">Blog</a></li>
+                        <li><a href="#">Support</a></li>
+                    </ul>
+                </div>
+
+                <div class="footer-column">
+                    <h3>Company</h3>
+                    <ul class="footer-links">
+                        <li><a href="#">About Us</a></li>
+                        <li><a href="#">Careers</a></li>
+                        <li><a href="#">Privacy Policy</a></li>
+                        <li><a href="#">Terms of Service</a></li>
+                        <li><a href="#">Contact</a></li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="copyright">
+                <p>&copy; 2027 STAR MULTIMEDIA. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Create floating particles
+        function createParticles() {
+            const particlesContainer = document.getElementById('particles');
+            const particleCount = 30;
+
+            for (let i = 0; i < particleCount; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'particle';
+
+                // Random properties
+                const size = Math.random() * 6 + 2;
+                const posX = Math.random() * 100;
+                const posY = Math.random() * 100;
+                const delay = Math.random() * 20;
+                const duration = 15 + Math.random() * 10;
+
+                particle.style.width = `${size}px`;
+                particle.style.height = `${size}px`;
+                particle.style.left = `${posX}%`;
+                particle.style.top = `${posY}%`;
+                particle.style.animationDelay = `${delay}s`;
+                particle.style.animationDuration = `${duration}s`;
+
+                particlesContainer.appendChild(particle);
+            }
+        }
+
+        // Scroll animations
+        function handleScrollAnimations() {
+            const elements = document.querySelectorAll('.fade-in');
+
+            elements.forEach(element => {
+                const elementTop = element.getBoundingClientRect().top;
+                const elementVisible = 150;
+
+                if (elementTop < window.innerHeight - elementVisible) {
+                    element.classList.add('visible');
+                }
+            });
+        }
+
+        // Smooth scrolling for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+
+                const targetId = this.getAttribute('href');
+                if(targetId === '#') return;
+
+                const targetElement = document.querySelector(targetId);
+                if(targetElement) {
+                    window.scrollTo({
+                        top: targetElement.offsetTop - 80,
+                        behavior: 'smooth'
+                    });
+                }
+            });
+        });
+
+        // Header background on scroll
+        window.addEventListener('scroll', function() {
+            const header = document.querySelector('header');
+            if(window.scrollY > 50) {
+                header.style.background = 'rgba(15, 23, 42, 0.95)';
+            } else {
+                header.style.background = 'rgba(15, 23, 42, 0.8)';
+            }
+
+            handleScrollAnimations();
+        });
+
+        // Theme Switcher Functionality
+        const themeToggle = document.getElementById('themeToggle');
+        const themeOptions = document.getElementById('themeOptions');
+        const themeOptionsItems = document.querySelectorAll('.theme-option');
+
+        // Toggle theme options visibility
+        themeToggle.addEventListener('click', function(e) {
+            e.stopPropagation();
+            themeOptions.classList.toggle('active');
+        });
+
+        // Close theme options when clicking outside
+        document.addEventListener('click', function() {
+            themeOptions.classList.remove('active');
+        });
+
+        // Prevent theme options from closing when clicking inside
+        themeOptions.addEventListener('click', function(e) {
+            e.stopPropagation();
+        });
+
+        // Change theme
+        themeOptionsItems.forEach(item => {
+            item.addEventListener('click', function() {
+                const theme = this.getAttribute('data-theme');
+
+                // Update body class
+                document.body.className = theme;
+
+                // Update active state
+                themeOptionsItems.forEach(opt => opt.classList.remove('active'));
+                this.classList.add('active');
+
+                // Close theme options
+                themeOptions.classList.remove('active');
+
+                // Save theme preference to localStorage
+                localStorage.setItem('star-multimedia-theme', theme);
+            });
+        });
+
+        // Load saved theme from localStorage
+        document.addEventListener('DOMContentLoaded', function() {
+            const savedTheme = localStorage.getItem('star-multimedia-theme');
+            if (savedTheme) {
+                document.body.className = savedTheme;
+                themeOptionsItems.forEach(opt => {
+                    opt.classList.remove('active');
+                    if (opt.getAttribute('data-theme') === savedTheme) {
+                        opt.classList.add('active');
+                    }
+                });
+            }
+        });
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            createParticles();
+            handleScrollAnimations();
+        });
+    </script>
+</body>
+</html>
