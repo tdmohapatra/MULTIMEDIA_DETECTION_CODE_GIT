@@ -1,5 +1,4 @@
-﻿
-// wwwroot/js/realtime-detection.js
+﻿// wwwroot/js/realtime-detection.js
 class RealTimeDetection {
     constructor() {
         this.video = document.getElementById('videoFeed');
@@ -23,6 +22,7 @@ class RealTimeDetection {
         this.hands = null;
         this.handResults = null;
         this.mediaPipeLoaded = false;
+        this.initializedHands = false;
 
         // Enhanced detection tracking
         this.faceExpressions = [];
@@ -32,30 +32,27 @@ class RealTimeDetection {
         this.vitalMetrics = {};
         this.activityHistory = [];
         this.cameraStability = 100;
-
-
+        this.simulationWarningShown = false;
 
         this.initializeEventListeners();
         this.initializeSession();
         this.initializeCharts();
-        this.initializeMediaPipeHands(); // Initialize MediaPipe
         this.updateUIState(false);
         this.updateTime();
-        this.loadMediaPipeHands(); // Load MediaPipe dynamically
+        this.loadMediaPipeHands();
         setInterval(() => this.updateTime(), 1000);
     }
 
+    generateSessionId() {
+        return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    }
 
-
-    async initializeMediaPipeHands() {
+    async loadMediaPipeHands() {
         try {
-            // Check if MediaPipe is already loaded
             if (typeof Hands === 'undefined') {
                 await this.loadMediaPipeScripts();
             }
-
             await this.setupMediaPipeHands();
-
         } catch (error) {
             console.error('Failed to initialize MediaPipe Hands:', error);
             this.addLog('MediaPipe Hands initialization failed. Using fallback detection.', 'warning');
@@ -97,7 +94,6 @@ class RealTimeDetection {
                 document.head.appendChild(script);
             });
 
-            // Timeout fallback
             setTimeout(() => {
                 if (!this.mediaPipeLoaded) {
                     reject(new Error('MediaPipe loading timeout'));
@@ -136,94 +132,6 @@ class RealTimeDetection {
     setupFallbackHandDetection() {
         this.initializedHands = false;
         this.addLog('Using fallback hand detection (simulation mode)', 'info');
-
-        // Fallback to basic hand detection using canvas analysis
-        this.fallbackHandDetector = {
-            detect: (canvas) => this.fallbackDetectHands(canvas)
-        };
-    }
-
-    // Fallback hand detection using basic image processing
-    fallbackDetectHands(canvas) {
-        // This is a very basic simulation of hand detection
-        // In a real scenario, you might use a different approach or library
-        const hands = [];
-        // Simulate occasional hand detection
-        if (Math.random() > 0.5) {
-            hands.push({
-                landmarks: this.generateSimulatedLandmarks(),
-                confidence: 0.5,
-                type: 'Simulated Hand'
-            });
-        }
-        return hands;
-    }
-
-    generateSimulatedLandmarks() {
-        // Generate 21 simulated landmarks (MediaPipe Hands has 21 landmarks per hand)
-        const landmarks = [];
-        for (let i = 0; i < 21; i++) {
-            landmarks.push({
-                x: Math.random(),
-                y: Math.random(),
-                z: Math.random() * 0.1
-            });
-        }
-        return landmarks;
-    }
-    async loadMediaPipeHands() {
-        try {
-            // Dynamically load MediaPipe Hands
-            await this.loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js');
-            await this.loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js');
-            await this.loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js');
-
-            this.initializeHands();
-        } catch (error) {
-            console.error('Failed to load MediaPipe:', error);
-            this.addLog('MediaPipe not available, using basic detection', 'warning');
-        }
-    }
-
-    loadScript(src) {
-        return new Promise((resolve, reject) => {
-            if (document.querySelector(`script[src="${src}"]`)) {
-                resolve();
-                return;
-            }
-
-            const script = document.createElement('script');
-            script.src = src;
-            script.onload = resolve;
-            script.onerror = reject;
-            document.head.appendChild(script);
-        });
-    }
-    initializeHands() {
-        if (typeof Hands === 'undefined') {
-            throw new Error('MediaPipe Hands not loaded');
-        }
-
-        this.hands = new Hands({
-            locateFile: (file) => {
-                return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-            }
-        });
-
-        this.hands.setOptions({
-            maxNumHands: 2,
-            modelComplexity: 1,
-            minDetectionConfidence: 0.5,
-            minTrackingConfidence: 0.5
-        });
-
-        this.hands.onResults((results) => {
-            this.handResults = results;
-            this.processHandResults(results);
-        });
-
-        this.mediaPipeLoaded = true;
-        this.addLog('Hand gesture detection initialized', 'success');
     }
 
     processHandResults(results) {
@@ -240,7 +148,7 @@ class RealTimeDetection {
         this.handGestures = gestures;
         this.updateGestureAnalysis(gestures);
     }
-    // Add the hand gesture analysis methods from previous solution
+
     analyzeHandGesture(landmarks, handedness) {
         const gesture = {
             type: 'Unknown',
@@ -339,51 +247,10 @@ class RealTimeDetection {
             !fingerStates.pinky;
     }
 
-    isOpenHand(fingerStates) {
-        return Object.values(fingerStates).every(extended => extended);
-    }
-
-    isClosedFist(fingerStates) {
-        return Object.values(fingerStates).every(extended => !extended);
-    }
-
-    isThumbsUp(fingerStates, handedness) {
-        return fingerStates.thumb &&
-            !fingerStates.index &&
-            !fingerStates.middle &&
-            !fingerStates.ring &&
-            !fingerStates.pinky;
-    }
-
-    isVictory(fingerStates) {
-        return !fingerStates.thumb &&
-            fingerStates.index &&
-            fingerStates.middle &&
-            !fingerStates.ring &&
-            !fingerStates.pinky;
-    }
-
-    isPointing(fingerStates) {
-        return !fingerStates.thumb &&
-            fingerStates.index &&
-            !fingerStates.middle &&
-            !fingerStates.ring &&
-            !fingerStates.pinky;
-    }
-
-    isOkSign(fingerStates) {
-        return fingerStates.thumb &&
-            fingerStates.index &&
-            !fingerStates.middle &&
-            !fingerStates.ring &&
-            !fingerStates.pinky;
-    }
-
     drawHandLandmarks() {
         if (!this.handResults || !this.handResults.multiHandLandmarks) return;
 
         this.handResults.multiHandLandmarks.forEach((landmarks) => {
-            // Draw landmarks
             landmarks.forEach((landmark) => {
                 const x = landmark.x * this.canvas.width;
                 const y = landmark.y * this.canvas.height;
@@ -394,11 +261,9 @@ class RealTimeDetection {
                 this.ctx.fill();
             });
 
-            // Draw connections
             this.drawHandConnections(landmarks);
         });
     }
-
 
     drawHandConnections(landmarks) {
         const connections = [
@@ -429,10 +294,6 @@ class RealTimeDetection {
         });
     }
 
-    generateSessionId() {
-        return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-    }
-
     async initializeSession() {
         try {
             const response = await fetch(`/api/detection/initialize/${this.sessionId}`, {
@@ -454,13 +315,11 @@ class RealTimeDetection {
     }
 
     initializeEventListeners() {
-        // Control buttons
         document.getElementById('startBtn').addEventListener('click', () => this.startDetection());
         document.getElementById('stopBtn').addEventListener('click', () => this.stopDetection());
         document.getElementById('exportBtn').addEventListener('click', () => this.exportData());
         document.getElementById('clearLogsBtn').addEventListener('click', () => this.clearLogs());
 
-        // Frame rate control
         const fpsSlider = document.getElementById('fpsSlider');
         if (fpsSlider) {
             fpsSlider.addEventListener('input', (e) => {
@@ -470,7 +329,6 @@ class RealTimeDetection {
             });
         }
 
-        // Mobile menu
         const mobileMenuBtn = document.getElementById('mobileMenuBtn');
         if (mobileMenuBtn) {
             mobileMenuBtn.addEventListener('click', () => {
@@ -478,10 +336,7 @@ class RealTimeDetection {
             });
         }
 
-        // Tab system
         this.initializeTabSystem();
-
-        // Monitoring options
         this.initializeMonitoringOptions();
     }
 
@@ -489,11 +344,9 @@ class RealTimeDetection {
         const tabBtns = document.querySelectorAll('.tab-btn');
         tabBtns.forEach(btn => {
             btn.addEventListener('click', () => {
-                // Remove active class from all buttons and panes
                 document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
                 document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
 
-                // Add active class to clicked button and corresponding pane
                 btn.classList.add('active');
                 const tabId = btn.getAttribute('data-tab') + '-tab';
                 document.getElementById(tabId).classList.add('active');
@@ -520,7 +373,6 @@ class RealTimeDetection {
     }
 
     initializeCharts() {
-        // Initialize emotion chart
         const emotionCtx = document.getElementById('emotionChart');
         if (emotionCtx) {
             this.emotionChart = new Chart(emotionCtx, {
@@ -552,7 +404,6 @@ class RealTimeDetection {
             });
         }
 
-        // Initialize activity timeline
         const activityCtx = document.getElementById('activityTimeline');
         if (activityCtx) {
             this.activityTimeline = new Chart(activityCtx, {
@@ -614,50 +465,6 @@ class RealTimeDetection {
         }
     }
 
-    //async startDetection() {
-    //    try {
-    //        this.updateSystemStatus('initializing');
-    //        this.updateCameraStatus('connecting');
-
-    //        const stream = await navigator.mediaDevices.getUserMedia({
-    //            video: {
-    //                width: { ideal: 1280 },
-    //                height: { ideal: 720 },
-    //                frameRate: { ideal: 30 }
-    //            }
-    //        });
-
-    //        this.video.srcObject = stream;
-
-    //        this.video.onloadeddata = () => {
-    //            this.canvas.width = this.video.videoWidth;
-    //            this.canvas.height = this.video.videoHeight;
-
-    //            this.isRunning = true;
-    //            this.updateUIState(true);
-    //            this.updateSystemStatus('running');
-    //            this.updateCameraStatus('connected');
-    //            this.updateProcessingStatus('active');
-
-    //            this.processingInterval = setInterval(() => this.processFrame(), this.processingRate);
-    //            this.statsInterval = setInterval(() => this.updateStats(), 1000);
-    //            this.fpsInterval = setInterval(() => this.updateFPS(), 1000);
-
-    //            this.addNotification('Advanced AI Vision System Activated', 'success');
-    //            this.addLog('High-resolution camera initialized - Starting advanced analysis', 'info');
-    //        };
-
-    //    } catch (error) {
-    //        this.addNotification('Camera Access Denied: ' + error.message, 'error');
-    //        this.addLog('Camera initialization failed: ' + error.message, 'error');
-    //        this.updateSystemStatus('error');
-    //        this.updateCameraStatus('error');
-
-    //        // Start simulation mode if camera fails
-    //        this.startSimulationMode();
-    //    }
-    //}
-
     async startDetection() {
         try {
             this.updateSystemStatus('initializing');
@@ -696,80 +503,21 @@ class RealTimeDetection {
             this.addLog('Camera initialization failed: ' + error.message, 'error');
             this.updateSystemStatus('error');
             this.updateCameraStatus('error');
-
-            // Start simulation mode if camera fails
             this.startSimulationMode();
         }
     }
 
-    //startSimulationMode() {
-    //    this.addLog('Starting simulation mode with sample data', 'warning');
-    //    this.isRunning = true;
-    //    this.updateUIState(true);
-    //    this.updateSystemStatus('running');
-    //    this.updateProcessingStatus('active');
+    startSimulationMode() {
+        this.addLog('Starting simulation mode with sample data', 'warning');
+        this.isRunning = true;
+        this.updateUIState(true);
+        this.updateSystemStatus('running');
+        this.updateProcessingStatus('active');
 
-    //    this.processingInterval = setInterval(() => this.processSimulatedFrame(), this.processingRate);
-    //    this.statsInterval = setInterval(() => this.updateSimulatedStats(), 1000);
-    //    this.fpsInterval = setInterval(() => this.updateFPS(), 1000);
-    //}
-
-    //async processFrame() {
-    //    if (!this.isRunning || this.video.readyState !== this.video.HAVE_ENOUGH_DATA) {
-    //        return;
-    //    }
-
-    //    try {
-    //        this.frameCount++;
-
-    //        // Draw video frame
-    //        this.ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
-
-    //        // Process with MediaPipe Hands if initialized
-    //        if (this.initializedHands && this.hands) {
-    //            await this.hands.send({ image: this.video });
-    //            this.drawHandLandmarks();
-    //        } else if (this.fallbackHandDetector) {
-    //            // Use fallback hand detection
-    //            const hands = this.fallbackHandDetector.detect(this.canvas);
-    //            this.processFallbackHandResults(hands);
-    //        }
-
-
-
-    //        // Update statistics with hand detection data
-    //        const stats = {
-    //            facesDetected: 0, // You can add face detection later
-    //            eyesDetected: 0,
-    //            handsDetected: this.handResults?.multiHandLandmarks?.length || 0,
-    //            totalFramesProcessed: this.frameCount,
-    //            currentMovementLevel: this.calculateMovementLevel(),
-    //            movementDetected: this.handResults?.multiHandLandmarks?.length > 0,
-    //            textDetected: false,
-    //            expressionsDetected: false,
-    //            gesturesDetected: this.handGestures.length > 0
-    //        };
-
-    //        const result = {
-    //            stats: stats,
-    //            handGestures: this.handGestures,
-    //            vitalMetrics: this.estimateVitalMetrics(),
-    //            capturedText: null
-    //        };
-
-    //        this.updateDisplay(result);
-
-    //    } catch (error) {
-    //        this.addLog('Frame processing error: ' + error.message, 'error');
-
-    //        // Fall back to simulation if MediaPipe fails
-    //        if (!this.simulationWarningShown) {
-    //            this.addLog('MediaPipe processing failed, switching to simulation mode', 'warning');
-    //            this.simulationWarningShown = true;
-    //        }
-    //        this.processSimulatedFrame();
-    //    }
-    //}
+        this.processingInterval = setInterval(() => this.processSimulatedFrame(), this.processingRate);
+        this.statsInterval = setInterval(() => this.updateSimulatedStats(), 1000);
+        this.fpsInterval = setInterval(() => this.updateFPS(), 1000);
+    }
 
     async processFrame() {
         if (!this.isRunning || this.video.readyState !== this.video.HAVE_ENOUGH_DATA) {
@@ -778,70 +526,126 @@ class RealTimeDetection {
 
         try {
             this.frameCount++;
-
-            // Draw video frame
             this.ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
 
-            // Process with MediaPipe Hands if loaded
-            if (this.mediaPipeLoaded && this.hands) {
+            // Process hand gestures with MediaPipe
+            if (this.initializedHands && this.hands) {
                 await this.hands.send({ image: this.video });
                 this.drawHandLandmarks();
             } else {
-                // Fallback to simulated hand detection
                 this.processSimulatedHands();
             }
 
+            // Send frame to server for face and eye detection
+            await this.sendFrameToServer();
+
             // Update statistics
             const stats = {
-                facesDetected: 0,
-                eyesDetected: 0,
+                facesDetected: this.faceExpressions.length,
+                eyesDetected: this.eyeMovements.length,
                 handsDetected: this.handResults?.multiHandLandmarks?.length || 0,
                 totalFramesProcessed: this.frameCount,
                 currentMovementLevel: this.calculateMovementLevel(),
                 movementDetected: this.handResults?.multiHandLandmarks?.length > 0,
-                textDetected: false,
-                expressionsDetected: false,
-                gesturesDetected: this.handGestures?.length > 0
+                textDetected: this.capturedTexts.length > 0,
+                expressionsDetected: this.faceExpressions.length > 0,
+                gesturesDetected: this.handGestures.length > 0
             };
 
             const result = {
                 stats: stats,
-                handGestures: this.handGestures || [],
+                faceExpressions: this.faceExpressions,
+                handGestures: this.handGestures,
+                eyeMovements: this.eyeMovements,
                 vitalMetrics: this.estimateVitalMetrics(),
-                capturedText: null
+                capturedText: this.capturedTexts.length > 0 ? this.capturedTexts[this.capturedTexts.length - 1] : null
             };
 
             this.updateDisplay(result);
 
         } catch (error) {
             console.error('Frame processing error:', error);
+            this.addLog('Frame processing error: ' + error.message, 'error');
+
+            if (!this.simulationWarningShown) {
+                this.addLog('Switching to simulation mode', 'warning');
+                this.simulationWarningShown = true;
+            }
             this.processSimulatedFrame();
         }
     }
 
+    async sendFrameToServer() {
+        try {
+            const imageData = this.canvas.toDataURL('image/jpeg', 0.9);
 
-
-
-    processFallbackHandResults(hands) {
-        const gestures = [];
-
-        hands.forEach((hand, index) => {
-            const gesture = {
-                type: hand.type || 'Unknown',
-                confidence: hand.confidence || 0.5,
-                handedness: 'Unknown',
-                meaning: 'Fallback detection',
-                landmarks: hand.landmarks
+            const frameData = {
+                imageData: imageData,
+                sessionId: this.sessionId,
+                timestamp: Date.now(),
+                frameNumber: this.frameCount
             };
-            gestures.push(gesture);
-        });
 
-        this.handGestures = gestures;
-        this.updateGestureAnalysis(gestures);
+            const response = await fetch('/api/detection/process-frame', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(frameData)
+            });
+
+            if (response.ok) {
+                const serverResult = await response.json();
+
+                // Update server-based detections
+                if (serverResult.faceExpressions) {
+                    this.faceExpressions = serverResult.faceExpressions;
+                }
+                if (serverResult.eyeMovements) {
+                    this.eyeMovements = serverResult.eyeMovements;
+                }
+                if (serverResult.capturedText) {
+                    this.capturedTexts.push(serverResult.capturedText);
+                    if (this.capturedTexts.length > 10) this.capturedTexts.shift();
+                }
+            } else {
+                throw new Error('Server returned error: ' + response.status);
+            }
+        } catch (error) {
+            // Use simulated data if server is unavailable
+            this.faceExpressions = this.simulateFaceExpressions();
+            this.eyeMovements = this.simulateEyeMovements();
+            throw error;
+        }
+    }
+
+    simulateFaceExpressions() {
+        if (Math.random() > 0.7) {
+            return [{
+                dominantEmotion: ['Happy', 'Sad', 'Angry', 'Surprised', 'Neutral'][Math.floor(Math.random() * 5)],
+                emotions: {
+                    happy: Math.random(),
+                    sad: Math.random(),
+                    angry: Math.random(),
+                    surprised: Math.random(),
+                    neutral: Math.random(),
+                    fear: Math.random(),
+                    disgust: Math.random()
+                }
+            }];
+        }
+        return [];
+    }
+
+    simulateEyeMovements() {
+        if (Math.random() > 0.6) {
+            return Array.from({ length: Math.floor(Math.random() * 4) + 1 }, () => ({
+                position: { x: Math.random(), y: Math.random() },
+                state: ['Open', 'Closed', 'Blinking'][Math.floor(Math.random() * 3)]
+            }));
+        }
+        return [];
     }
 
     processSimulatedHands() {
-        // Basic simulation when MediaPipe is not available
         if (Math.random() > 0.7) {
             this.handGestures = [{
                 type: ['Open Hand', 'Closed Fist', 'Thumbs Up'][Math.floor(Math.random() * 3)],
@@ -866,13 +670,15 @@ class RealTimeDetection {
 
         return Math.min(100, totalMovement * 10);
     }
+
     estimateVitalMetrics() {
         const movementLevel = this.calculateMovementLevel();
+        const hasFace = this.faceExpressions.length > 0;
 
         return {
-            heartRate: Math.floor(60 + movementLevel / 3),
+            heartRate: Math.floor(60 + (hasFace ? movementLevel / 3 : Math.random() * 40)),
             stressLevel: movementLevel > 70 ? 'High' : movementLevel > 40 ? 'Medium' : 'Low',
-            attentionScore: Math.floor(30 + movementLevel / 1.5),
+            attentionScore: Math.floor((hasFace ? 50 : 30) + movementLevel / 1.5),
             engagementLevel: movementLevel > 60 ? 'High' : movementLevel > 30 ? 'Medium' : 'Low'
         };
     }
@@ -882,7 +688,6 @@ class RealTimeDetection {
 
         this.frameCount++;
 
-        // Simulate detection data with safe defaults
         const simulatedResult = {
             stats: {
                 facesDetected: Math.floor(Math.random() * 3),
@@ -895,24 +700,9 @@ class RealTimeDetection {
                 expressionsDetected: Math.random() > 0.5,
                 gesturesDetected: Math.random() > 0.6
             },
-            faceExpressions: Math.random() > 0.3 ? [{
-                dominantEmotion: ['Happy', 'Sad', 'Angry', 'Surprised', 'Neutral'][Math.floor(Math.random() * 5)],
-                emotions: {
-                    happy: Math.random(),
-                    sad: Math.random(),
-                    angry: Math.random(),
-                    surprised: Math.random(),
-                    neutral: Math.random(),
-                    fear: Math.random(),
-                    disgust: Math.random()
-                }
-            }] : [],
-            handGestures: Math.random() > 0.5 ? [{
-                type: ['Open', 'Closed', 'Pointing', 'Thumbs Up', 'Peace'][Math.floor(Math.random() * 5)],
-                confidence: Math.random(),
-                handedness: ['Left', 'Right'][Math.floor(Math.random() * 2)],
-                meaning: 'Simulated gesture'
-            }] : [],
+            faceExpressions: this.simulateFaceExpressions(),
+            handGestures: this.processSimulatedHands(),
+            eyeMovements: this.simulateEyeMovements(),
             vitalMetrics: {
                 heartRate: Math.floor(60 + Math.random() * 40),
                 stressLevel: ['Low', 'Medium', 'High'][Math.floor(Math.random() * 3)],
@@ -925,55 +715,6 @@ class RealTimeDetection {
         this.updateDisplay(simulatedResult);
         this.drawDetectionOverlays(simulatedResult);
     }
-
-    //processSimulatedFrame() {
-    //    if (!this.isRunning) return;
-
-    //    this.frameCount++;
-
-    //    // Simulate detection data
-    //    const simulatedResult = {
-    //        stats: {
-    //            facesDetected: Math.floor(Math.random() * 3),
-    //            eyesDetected: Math.floor(Math.random() * 6),
-    //            handsDetected: Math.floor(Math.random() * 4),
-    //            totalFramesProcessed: this.frameCount,
-    //            currentMovementLevel: Math.random() * 100,
-    //            movementDetected: Math.random() > 0.3,
-    //            textDetected: Math.random() > 0.8,
-    //            expressionsDetected: Math.random() > 0.5,
-    //            gesturesDetected: Math.random() > 0.6
-    //        },
-    //        faceExpressions: Math.random() > 0.3 ? [{
-    //            dominantEmotion: ['Happy', 'Sad', 'Angry', 'Surprised', 'Neutral'][Math.floor(Math.random() * 5)],
-    //            emotions: {
-    //                happy: Math.random(),
-    //                sad: Math.random(),
-    //                angry: Math.random(),
-    //                surprised: Math.random(),
-    //                neutral: Math.random(),
-    //                fear: Math.random(),
-    //                disgust: Math.random()
-    //            }
-    //        }] : [],
-    //        handGestures: Math.random() > 0.5 ? [{
-    //            type: ['Open', 'Closed', 'Pointing', 'Thumbs Up', 'Peace'][Math.floor(Math.random() * 5)],
-    //            confidence: Math.random(),
-    //            handedness: ['Left', 'Right'][Math.floor(Math.random() * 2)],
-    //            meaning: 'Simulated gesture'
-    //        }] : [],
-    //        vitalMetrics: {
-    //            heartRate: Math.floor(60 + Math.random() * 40),
-    //            stressLevel: ['Low', 'Medium', 'High'][Math.floor(Math.random() * 3)],
-    //            attentionScore: Math.floor(50 + Math.random() * 50),
-    //            engagementLevel: ['Low', 'Medium', 'High'][Math.floor(Math.random() * 3)]
-    //        },
-    //        capturedText: Math.random() > 0.8 ? 'Sample detected text from simulation mode' : null
-    //    };
-
-    //    this.updateDisplay(simulatedResult);
-    //    this.drawDetectionOverlays(simulatedResult);
-    //}
 
     updateSimulatedStats() {
         const stats = {
@@ -1017,113 +758,15 @@ class RealTimeDetection {
         this.addNotification('Advanced Analysis System Stopped', 'warning');
         this.addLog('Real-time processing stopped', 'info');
 
-        // Clear active detections
         this.activeDetections.clear();
         this.updateActiveDetections();
         this.clearVideoOverlay();
     }
 
-    //async processFrame() {
-    //    if (!this.isRunning || this.video.readyState !== this.video.HAVE_ENOUGH_DATA) {
-    //        return;
-    //    }
-
-    //    try {
-    //        this.frameCount++;
-    //        this.ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
-    //        const imageData = this.canvas.toDataURL('image/jpeg', 0.9);
-
-    //        const frameData = {
-    //            imageData: imageData,
-    //            sessionId: this.sessionId,
-    //            timestamp: Date.now(),
-    //            frameNumber: this.frameCount
-    //        };
-
-    //        const response = await fetch('/api/detection/process-frame', {
-    //            method: 'POST',
-    //            headers: { 'Content-Type': 'application/json' },
-    //            body: JSON.stringify(frameData)
-    //        });
-
-    //        if (response.ok) {
-    //            const result = await response.json();
-    //            this.updateDisplay(result);
-    //            this.drawDetectionOverlays(result);
-    //        } else {
-    //            throw new Error('Server returned error: ' + response.status);
-    //        }
-    //    } catch (error) {
-    //        // If backend is not available, fall back to simulation
-    //        if (error.message.includes('Failed to fetch') || error.message.includes('Server returned error')) {
-    //            if (!this.simulationWarningShown) {
-    //                this.addLog('Backend not available, switching to simulation mode', 'warning');
-    //                this.simulationWarningShown = true;
-    //            }
-    //            this.processSimulatedFrame();
-    //        } else {
-    //            this.addLog('Frame processing error: ' + error.message, 'error');
-    //        }
-    //    }
-    //}
-
-
-    async processFrame() {
-        if (!this.isRunning || this.video.readyState !== this.video.HAVE_ENOUGH_DATA) {
-            return;
-        }
-
-        try {
-            this.frameCount++;
-            this.ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
-            const imageData = this.canvas.toDataURL('image/jpeg', 0.9);
-
-            const frameData = {
-                imageData: imageData,
-                sessionId: this.sessionId,
-                timestamp: Date.now(),
-                frameNumber: this.frameCount
-            };
-
-            const response = await fetch('/api/detection/process-frame', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(frameData)
-            });
-
-            if (response.ok) {
-                const result = await response.json();
-                this.updateDisplay(result);
-                this.drawDetectionOverlays(result);
-            } else {
-                throw new Error('Server returned error: ' + response.status);
-            }
-        } catch (error) {
-            // If backend is not available, fall back to simulation
-            if (error.message.includes('Failed to fetch') || error.message.includes('Server returned error')) {
-                if (!this.simulationWarningShown) {
-                    this.addLog('Backend not available, switching to simulation mode', 'warning');
-                    this.simulationWarningShown = true;
-                }
-                this.processSimulatedFrame();
-            } else {
-                this.addLog('Frame processing error: ' + error.message, 'error');
-            }
-        }
-    }
-
-
     safeUpdateElement(id, value, defaultValue = '0') {
         const element = document.getElementById(id);
         if (element) {
             element.textContent = value !== undefined && value !== null ? value : defaultValue;
-        }
-    }
-
-    safeUpdateElementContent(id, content) {
-        const element = document.getElementById(id);
-        if (element && content !== undefined && content !== null) {
-            element.textContent = content;
         }
     }
 
@@ -1143,7 +786,6 @@ class RealTimeDetection {
         this.updateFPSDisplay();
         this.updateCameraStability(result.stats?.currentMovementLevel || 0);
 
-        // Enhanced data processing
         if (result.faceExpressions) {
             this.updateExpressionAnalysis(result.faceExpressions);
         }
@@ -1160,53 +802,15 @@ class RealTimeDetection {
             this.updateVitalMetrics(result.vitalMetrics);
         }
 
-        if (result.notifications && result.notifications.length > 0) {
-            result.notifications.forEach(notification => this.addNotification(notification.message, notification.type));
-        }
-
-        if (result.logs && result.logs.length > 0) {
-            result.logs.forEach(log => this.addLog(log.message, log.type));
-        }
-
         if (result.capturedText) {
             this.updateCapturedText(result.capturedText);
         }
 
-        // Update sidebar stats
         this.updateSidebarStats(result.stats || {});
-
-        // Update activity timeline
         this.updateActivityTimeline(result.stats || {});
     }
 
-    //updateCameraStability(movementLevel) {
-    //    // Calculate camera stability based on movement (inverse relationship)
-    //    const stability = Math.max(0, 100 - movementLevel * 0.8);
-    //    this.cameraStability = stability;
-
-    //    const stabilityValue = document.getElementById('stabilityValue');
-    //    const stabilityMeter = document.getElementById('stabilityMeter');
-    //    const cameraStatusLabel = document.getElementById('cameraStatusLabel');
-
-    //    if (stabilityValue) stabilityValue.textContent = stability.toFixed(0) + '%';
-    //    if (stabilityMeter) stabilityMeter.style.width = stability + '%';
-
-    //    if (cameraStatusLabel) {
-    //        if (stability > 80) {
-    //            cameraStatusLabel.textContent = 'Camera is stable';
-    //            cameraStatusLabel.className = 'text-success';
-    //        } else if (stability > 60) {
-    //            cameraStatusLabel.textContent = 'Camera is moderately stable';
-    //            cameraStatusLabel.className = 'text-warning';
-    //        } else {
-    //            cameraStatusLabel.textContent = 'Camera is unstable';
-    //            cameraStatusLabel.className = 'text-danger';
-    //        }
-    //    }
-    //}
-
     updateCameraStability(movementLevel) {
-        // Calculate camera stability based on movement (inverse relationship)
         const stability = Math.max(0, 100 - (movementLevel || 0) * 0.8);
         this.cameraStability = stability;
 
@@ -1235,7 +839,6 @@ class RealTimeDetection {
         overlay.innerHTML = '';
 
         if (result.detections) {
-            // Draw face markers with expressions
             if (result.detections.faces) {
                 result.detections.faces.forEach((face, index) => {
                     const marker = this.createDetectionMarker(face.bbox, 'face', `Face ${index + 1} - ${face.expression || 'Neutral'}`);
@@ -1243,7 +846,6 @@ class RealTimeDetection {
                 });
             }
 
-            // Draw eye markers with movement
             if (result.detections.eyes) {
                 result.detections.eyes.forEach((eye, index) => {
                     const marker = this.createDetectionMarker(eye.bbox, 'eye', `Eye - ${eye.state || 'Open'}`);
@@ -1251,18 +853,9 @@ class RealTimeDetection {
                 });
             }
 
-            // Draw hand markers with gestures
             if (result.detections.hands) {
                 result.detections.hands.forEach((hand, index) => {
                     const marker = this.createDetectionMarker(hand.bbox, 'hand', `Hand - ${hand.gesture || 'Unknown'}`);
-                    overlay.appendChild(marker);
-                });
-            }
-
-            // Draw text regions
-            if (result.detections.textRegions) {
-                result.detections.textRegions.forEach((text, index) => {
-                    const marker = this.createDetectionMarker(text.bbox, 'text', `Text: ${text.content}`);
                     overlay.appendChild(marker);
                 });
             }
@@ -1277,7 +870,6 @@ class RealTimeDetection {
         marker.style.width = `${bbox?.width || 150}px`;
         marker.style.height = `${bbox?.height || 150}px`;
 
-        // Add label
         const labelElement = document.createElement('div');
         labelElement.className = 'position-absolute top-0 start-0 translate-middle-y px-2 py-1 rounded text-xs';
         labelElement.style.background = 'rgba(0, 0, 0, 0.8)';
@@ -1334,7 +926,6 @@ class RealTimeDetection {
 
         container.innerHTML = html;
 
-        // Update emotion chart
         if (expressions.length > 0 && this.emotionChart) {
             this.updateEmotionChart(expressions[0].emotions);
         }
@@ -1398,7 +989,6 @@ class RealTimeDetection {
                 </div>
             `;
 
-            // Add to gesture history
             if (historyContainer) {
                 const timestamp = new Date().toLocaleTimeString();
                 const historyItem = document.createElement('div');
@@ -1410,7 +1000,6 @@ class RealTimeDetection {
                 `;
                 historyContainer.appendChild(historyItem);
 
-                // Keep history manageable
                 if (historyContainer.children.length > 20) {
                     historyContainer.removeChild(historyContainer.firstChild);
                 }
@@ -1429,10 +1018,8 @@ class RealTimeDetection {
     updateVitalMetrics(metrics) {
         this.vitalMetrics = { ...this.vitalMetrics, ...metrics };
 
-        // Update UI elements
         if (metrics.heartRate) {
-            const element = document.getElementById('heartRate');
-            if (element) element.textContent = `${metrics.heartRate} BPM`;
+            this.safeUpdateElement('heartRate', `${metrics.heartRate} BPM`);
         }
         if (metrics.stressLevel) {
             const element = document.getElementById('stressLevel');
@@ -1442,12 +1029,10 @@ class RealTimeDetection {
             }
         }
         if (metrics.attentionScore) {
-            const element = document.getElementById('attentionScore');
-            if (element) element.textContent = `${metrics.attentionScore}%`;
+            this.safeUpdateElement('attentionScore', `${metrics.attentionScore}%`);
         }
         if (metrics.engagementLevel) {
-            const element = document.getElementById('engagementLevel');
-            if (element) element.textContent = metrics.engagementLevel;
+            this.safeUpdateElement('engagementLevel', metrics.engagementLevel);
         }
     }
 
@@ -1466,18 +1051,15 @@ class RealTimeDetection {
 
         const now = new Date().toLocaleTimeString('en-US', { hour12: false });
 
-        // Add current movement level to timeline
         this.activityHistory.push({
             time: now,
             movement: stats.currentMovementLevel || 0
         });
 
-        // Keep only last 20 data points
         if (this.activityHistory.length > 20) {
             this.activityHistory.shift();
         }
 
-        // Update chart
         this.activityTimeline.data.labels = this.activityHistory.map(item => item.time.split(':').slice(1).join(':'));
         this.activityTimeline.data.datasets[0].data = this.activityHistory.map(item => item.movement);
         this.activityTimeline.update();
@@ -1489,34 +1071,9 @@ class RealTimeDetection {
     }
 
     updateFPSDisplay() {
-        const liveFps = document.getElementById('liveFps');
-        const fps = document.getElementById('fps');
-
-        if (liveFps) liveFps.textContent = `${this.currentFps} FPS`;
-        if (fps) fps.textContent = this.currentFps.toFixed(1);
+        this.safeUpdateElement('liveFps', this.currentFps + ' FPS');
+        this.safeUpdateElement('fps', this.currentFps.toFixed(1));
     }
-
-    //updateStatistics(stats) {
-    //    const faceCount = document.getElementById('faceCount');
-    //    const eyeCount = document.getElementById('eyeCount');
-    //    const handCount = document.getElementById('handCount');
-    //    const totalFrames = document.getElementById('totalFrames');
-
-    //    if (faceCount) faceCount.textContent = stats.facesDetected || 0;
-    //    if (eyeCount) eyeCount.textContent = stats.eyesDetected || 0;
-    //    if (handCount) handCount.textContent = stats.handsDetected || 0;
-    //    if (totalFrames) totalFrames.textContent = (stats.totalFramesProcessed || 0).toLocaleString();
-
-    //    // Update active detections
-    //    this.activeDetections.clear();
-    //    if ((stats.facesDetected || 0) > 0) this.activeDetections.add('face');
-    //    if ((stats.eyesDetected || 0) > 0) this.activeDetections.add('eye');
-    //    if ((stats.handsDetected || 0) > 0) this.activeDetections.add('hand');
-    //    if (stats.movementDetected) this.activeDetections.add('movement');
-    //    if (stats.textDetected) this.activeDetections.add('text');
-    //    if (stats.expressionsDetected) this.activeDetections.add('expression');
-    //    if (stats.gesturesDetected) this.activeDetections.add('gesture');
-    //}
 
     updateStatistics(stats = {}) {
         this.safeUpdateElement('faceCount', stats.facesDetected);
@@ -1524,7 +1081,6 @@ class RealTimeDetection {
         this.safeUpdateElement('handCount', stats.handsDetected);
         this.safeUpdateElement('totalFrames', (stats.totalFramesProcessed || 0).toLocaleString());
 
-        // Update active detections
         this.activeDetections.clear();
         if ((stats.facesDetected || 0) > 0) this.activeDetections.add('face');
         if ((stats.eyesDetected || 0) > 0) this.activeDetections.add('eye');
@@ -1537,20 +1093,6 @@ class RealTimeDetection {
         this.updateActiveDetections();
     }
 
-
-    //updateSidebarStats(stats) {
-    //    const sidebarFaces = document.getElementById('sidebarFaces');
-    //    const sidebarEyes = document.getElementById('sidebarEyes');
-    //    const sidebarHands = document.getElementById('sidebarHands');
-    //    const sidebarMovement = document.getElementById('sidebarMovement');
-
-    //    if (sidebarFaces) sidebarFaces.textContent = stats.facesDetected || 0;
-    //    if (sidebarEyes) sidebarEyes.textContent = stats.eyesDetected || 0;
-    //    if (sidebarHands) sidebarHands.textContent = stats.handsDetected || 0;
-    //    if (sidebarMovement) sidebarMovement.textContent = (stats.currentMovementLevel || 0).toFixed(0) + '%';
-    //}
-
-
     updateSidebarStats(stats = {}) {
         this.safeUpdateElement('sidebarFaces', stats.facesDetected);
         this.safeUpdateElement('sidebarEyes', stats.eyesDetected);
@@ -1558,35 +1100,12 @@ class RealTimeDetection {
         this.safeUpdateElement('sidebarMovement', (stats.currentMovementLevel || 0).toFixed(0) + '%');
     }
 
-    //updateMovementMeter(movementLevel) {
-    //    const movementLevelNormalized = Math.min(100, Math.max(0, movementLevel));
-    //    const meter = document.getElementById('movementMeter');
-    //    const valueDisplay = document.getElementById('movementValue');
-
-    //    if (meter) meter.style.width = movementLevelNormalized + '%';
-    //    if (valueDisplay) valueDisplay.textContent = movementLevelNormalized.toFixed(1) + '%';
-
-    //    // Update color based on intensity
-    //    if (meter) {
-    //        if (movementLevelNormalized < 10) {
-    //            meter.style.background = 'linear-gradient(90deg, #4cc9f0, #4895ef)';
-    //        } else if (movementLevelNormalized < 30) {
-    //            meter.style.background = 'linear-gradient(90deg, #4895ef, #4361ee)';
-    //        } else if (movementLevelNormalized < 50) {
-    //            meter.style.background = 'linear-gradient(90deg, #4361ee, #f8961e)';
-    //        } else {
-    //            meter.style.background = 'linear-gradient(90deg, #f8961e, #f72585)';
-    //        }
-    //    }
-    //}
-
     updateMovementMeter(movementLevel) {
         const movementLevelNormalized = Math.min(100, Math.max(0, movementLevel || 0));
 
         this.safeUpdateStyle('movementMeter', 'width', movementLevelNormalized + '%');
         this.safeUpdateElement('movementValue', movementLevelNormalized.toFixed(1) + '%');
 
-        // Update color based on intensity
         const meter = document.getElementById('movementMeter');
         if (meter) {
             if (movementLevelNormalized < 10) {
@@ -1600,7 +1119,6 @@ class RealTimeDetection {
             }
         }
     }
-
 
     updateActiveDetections() {
         const container = document.getElementById('activeDetections');
@@ -1633,11 +1151,6 @@ class RealTimeDetection {
         }
     }
 
-
-    updateFPSDisplay() {
-        this.safeUpdateElement('liveFps', this.currentFps + ' FPS');
-        this.safeUpdateElement('fps', this.currentFps.toFixed(1));
-    }
     updateCapturedText(text) {
         const container = document.getElementById('capturedTextContent');
         if (!container) return;
@@ -1660,21 +1173,6 @@ class RealTimeDetection {
         return div.innerHTML;
     }
 
-    //async updateStats() {
-    //    if (!this.isRunning) return;
-
-    //    try {
-    //        const response = await fetch(`/api/detection/stats/${this.sessionId}`);
-    //        if (response.ok) {
-    //            const stats = await response.json();
-    //            this.updateStatistics(stats);
-    //            this.updateSidebarStats(stats);
-    //        }
-    //    } catch (error) {
-    //        // Silently fail for stats updates in simulation mode
-    //    }
-    //}
-
     async updateStats() {
         if (!this.isRunning) return;
 
@@ -1686,11 +1184,9 @@ class RealTimeDetection {
                 this.updateSidebarStats(stats);
             }
         } catch (error) {
-            // Only log errors that aren't related to simulation mode
             if (!error.message.includes('Failed to fetch')) {
                 this.addLog('Stats update error: ' + error.message, 'error');
             }
-            // In simulation mode, we don't need to show stats update errors
         }
     }
 
@@ -1741,7 +1237,6 @@ class RealTimeDetection {
         const notificationCount = document.getElementById('notificationCount');
         if (notificationCount) notificationCount.textContent = this.notificationCount;
 
-        // Auto-remove after 8 seconds
         setTimeout(() => {
             if (notification.parentNode) {
                 notification.remove();
@@ -1897,13 +1392,3 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 });
-
-
-
-
-
-
-
-
-
-
