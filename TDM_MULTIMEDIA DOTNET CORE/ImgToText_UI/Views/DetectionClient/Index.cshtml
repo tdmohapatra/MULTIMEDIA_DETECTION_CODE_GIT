@@ -52,13 +52,43 @@
         grid-template-columns: 1fr 1fr;
         gap: 8px;
     }
+
+    .monitor-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+    }
+
+    .monitor-title {
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #9db3dd;
+        margin-bottom: 6px;
+    }
+
+    @@media (max-width: 992px) {
+        .monitor-grid {
+            grid-template-columns: 1fr;
+        }
+    }
 </style>
 
 <div class="row g-3">
     <div class="col-lg-8">
-        <div class="live-stack">
-            <video id="video" autoplay playsinline class="live-video"></video>
-            <canvas id="overlay" class="live-overlay"></canvas>
+        <div class="monitor-grid">
+            <div>
+                <div class="monitor-title">Original Screen</div>
+                <div class="live-stack">
+                    <video id="video" autoplay playsinline class="live-video"></video>
+                </div>
+            </div>
+            <div>
+                <div class="monitor-title">Trailing Analytics Screen (Last 30s)</div>
+                <div class="live-stack">
+                    <canvas id="overlay" class="live-overlay"></canvas>
+                </div>
+            </div>
         </div>
         <canvas id="captureCanvas" class="d-none"></canvas>
         <div class="hud">
@@ -67,6 +97,8 @@
             <span class="hud-badge">Eyes: <span id="eyesCount">0</span></span>
             <span class="hud-badge">Movement: <span id="movementPct">0</span>%</span>
             <span class="hud-badge">Gesture: <span id="gestureName">-</span></span>
+            <span class="hud-badge">Emotion: <span id="stableEmotion">Neutral</span></span>
+            <span class="hud-badge">EyeState: <span id="oneEyeStatus">BothOpen</span></span>
         </div>
     </div>
     <div class="col-lg-4">
@@ -150,6 +182,8 @@
     const eyesCount = document.getElementById('eyesCount');
     const movementPct = document.getElementById('movementPct');
     const gestureName = document.getElementById('gestureName');
+    const stableEmotion = document.getElementById('stableEmotion');
+    const oneEyeStatus = document.getElementById('oneEyeStatus');
     const showFaces = document.getElementById('showFaces');
     const showHands = document.getElementById('showHands');
     const showTrail = document.getElementById('showTrail');
@@ -167,6 +201,9 @@
     let rafHandle = null;
     const handTrail = [];
     let isRecordingTrail = false;
+    const faceState = new Map();
+    const handState = new Map();
+    const eyeState = new Map();
     const sessionStatsHistory = [];
     const gestureCounts = {};
     const sessionStartedAt = new Date().toISOString();
@@ -365,10 +402,16 @@
             body: JSON.stringify({
                 sessionId: sid(),
                 frameNumber: ++frame,
-                timestamp: new Date().toISOString(),
+                timestamp: Date.now(),
                 imageData
             })
         });
+
+        if (!r.ok) {
+            const errorText = await r.text();
+            output.textContent = `API error ${r.status}: ${errorText}`;
+            return;
+        }
 
         const data = await r.json();
         drawOverlay(data);
@@ -413,18 +456,23 @@
         ctx.clearRect(0, 0, overlay.width, overlay.height);
 
         const detections = data?.detections || {};
-        const faces = detections.faces || [];
-        const hands = detections.hands || [];
-        const eyes = detections.eyes || [];
+        const faces = stabilizeDetections(detections.faces || [], faceState, "face");
+        const hands = stabilizeDetections(detections.hands || [], handState, "hand");
+        const eyes = stabilizeDetections(detections.eyes || [], eyeState, "eye");
         const movement = Number(data?.stats?.currentMovementLevel || 0);
+        const monitoringState = data?.monitoringState || {};
 
         facesCount.textContent = faces.length;
         handsCount.textContent = hands.length;
         eyesCount.textContent = eyes.length;
         movementPct.textContent = movement.toFixed(1);
 
-        const dominantGesture = hands[0]?.gesture?.type || data?.handGestures?.[0]?.type || "-";
+        const dominantGesture = monitoringState.stableGesture || hands[0]?.gesture?.type || data?.handGestures?.[0]?.type || "-";
         gestureName.textContent = dominantGesture;
+        stableEmotion.textContent = monitoringState.stableDominantEmotion || faceEmotionFallback(data);
+        oneEyeStatus.textContent = monitoringState.oneEyeClosed
+            ? `OneEyeClosed(${monitoringState.oneEyeClosedSide || "Unknown"})`
+            : "BothOpen";
 
         if (showFaces.checked) {
             faces.forEach(face => {
@@ -534,6 +582,60 @@
             ctx.arc(p.x, p.y, 2.2, 0, Math.PI * 2);
             ctx.fill();
         });
+    }
+
+    function faceEmotionFallback(data) {
+        return data?.faceExpressions?.[0]?.dominantEmotion || "Neutral";
+    }
+
+    function stabilizeDetections(list, stateMap, type) {
+        const now = performance.now();
+        const keepMs = 420;
+        const alpha = 0.45;
+        const stable = [];
+
+        list.forEach((item, idx) => {
+            if (!item?.bBox) return;
+            const key = `${type}-${item.trackId ?? idx}`;
+            const prev = stateMap.get(key);
+            const b = item.bBox;
+
+            if (!prev) {
+                stateMap.set(key, {
+                    box: { x: b.x, y: b.y, width: b.width, height: b.height },
+                    item,
+                    lastSeen: now
+                });
+            } else {
+                prev.box.x = prev.box.x + alpha * (b.x - prev.box.x);
+                prev.box.y = prev.box.y + alpha * (b.y - prev.box.y);
+                prev.box.width = prev.box.width + alpha * (b.width - prev.box.width);
+                prev.box.height = prev.box.height + alpha * (b.height - prev.box.height);
+                prev.item = item;
+                prev.lastSeen = now;
+                stateMap.set(key, prev);
+            }
+        });
+
+        for (const [key, value] of stateMap.entries()) {
+            if ((now - value.lastSeen) > keepMs) {
+                stateMap.delete(key);
+                continue;
+            }
+
+            stable.push({
+                ...value.item,
+                bBox: {
+                    ...value.item.bBox,
+                    x: value.box.x,
+                    y: value.box.y,
+                    width: value.box.width,
+                    height: value.box.height
+                }
+            });
+        }
+
+        return stable;
     }
 
     function normalizeToPixels(value, boxStart, boxSize, maxSize) {

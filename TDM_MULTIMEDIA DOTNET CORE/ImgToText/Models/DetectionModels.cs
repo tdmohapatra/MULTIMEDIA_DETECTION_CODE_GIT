@@ -123,6 +123,8 @@ namespace STAR_MUTIMEDIA.Models
         public bool EnableAdaptiveProcessing { get; set; } = true;
         public int MaxProcessingTimeMs { get; set; } = 100;
         public bool EnableHardwareAcceleration { get; set; } = true;
+        public bool EnableModelEnhancedPipeline { get; set; } = false;
+        public bool EnableConfidenceFusion { get; set; } = true;
 
         // Alert settings
         public bool EnableAlerts { get; set; } = true;
@@ -165,11 +167,24 @@ namespace STAR_MUTIMEDIA.Models
         public List<HandGesture> HandGestures { get; set; } = new List<HandGesture>();
         public List<EyeMovement> EyeMovements { get; set; } = new List<EyeMovement>();
         public VitalMetrics VitalMetrics { get; set; } = new VitalMetrics();
+        public MonitoringState MonitoringState { get; set; } = new MonitoringState();
         public CalibrationResult Calibration { get; set; }
         public string CapturedText { get; set; }
         public bool Success { get; set; } = true;
         public string ErrorMessage { get; set; }
         public DateTime ProcessingTime { get; set; } = DateTime.UtcNow;
+    }
+
+    public class MonitoringState
+    {
+        public string StableDominantEmotion { get; set; } = "Neutral";
+        public double StableEmotionConfidence { get; set; } = 0.0;
+        public string StableGesture { get; set; } = "None";
+        public double StableGestureConfidence { get; set; } = 0.0;
+        public bool OneEyeClosed { get; set; } = false;
+        public string OneEyeClosedSide { get; set; } = "None";
+        public double OneEyeClosedConfidence { get; set; } = 0.0;
+        public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     }
 
     public class DetectionData
@@ -522,6 +537,12 @@ namespace STAR_MUTIMEDIA.Models
         public double BaselineMovementSum { get; set; } = 0.0;
         public double BaselineMovement { get; set; } = 5.0;
         public DateTime CalibrationStartedAt { get; set; } = DateTime.UtcNow;
+        public string StableEmotionLabel { get; set; } = "Neutral";
+        public string EmotionCandidateLabel { get; set; } = "Neutral";
+        public int StableEmotionStreak { get; set; } = 0;
+        public string StableGestureLabel { get; set; } = "None";
+        public string GestureCandidateLabel { get; set; } = "None";
+        public int StableGestureStreak { get; set; } = 0;
 
         public void UpdateFrameTime()
         {

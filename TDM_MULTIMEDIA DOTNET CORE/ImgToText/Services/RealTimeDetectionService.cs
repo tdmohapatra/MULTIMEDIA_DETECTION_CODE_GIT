@@ -268,7 +268,12 @@ namespace STAR_MUTIMEDIA.Services
                 var faceExpressions = AnalyzeFaceExpressions(detectionData.Faces);
                 var handGestures = AnalyzeHandGestures(detectionData.Hands);
                 var eyeMovements = AnalyzeEyeMovements(detectionData.Eyes);
+                if (session.Settings.EnableConfidenceFusion)
+                {
+                    ApplyConfidenceFusion(detectionData, faceExpressions, handGestures, eyeMovements);
+                }
                 var vitalMetrics = EstimateVitalMetrics(detectionData.Faces);
+                var monitoringState = BuildMonitoringState(session, faceExpressions, handGestures, eyeMovements);
 
                 session.Stats.ExpressionsDetected = faceExpressions.Count > 0;
                 session.Stats.GesturesDetected = handGestures.Count > 0;
@@ -281,6 +286,7 @@ namespace STAR_MUTIMEDIA.Services
                 result.HandGestures = handGestures;
                 result.EyeMovements = eyeMovements;
                 result.VitalMetrics = vitalMetrics;
+                result.MonitoringState = monitoringState;
                 result.Calibration = new CalibrationResult
                 {
                     SessionId = session.SessionId,
@@ -448,6 +454,118 @@ namespace STAR_MUTIMEDIA.Services
             }
 
             return eyeMovements;
+        }
+
+        private MonitoringState BuildMonitoringState(
+            SessionData session,
+            List<FaceExpression> faceExpressions,
+            List<HandGesture> handGestures,
+            List<EyeMovement> eyeMovements)
+        {
+            var state = new MonitoringState();
+
+            var topEmotion = faceExpressions
+                .OrderByDescending(e => e.Confidence)
+                .FirstOrDefault();
+            if (topEmotion != null && !string.IsNullOrWhiteSpace(topEmotion.DominantEmotion))
+            {
+                var stableEmotionLabel = session.StableEmotionLabel;
+                var emotionCandidateLabel = session.EmotionCandidateLabel;
+                var stableEmotionStreak = session.StableEmotionStreak;
+                UpdateStableLabel(
+                    ref stableEmotionLabel,
+                    ref emotionCandidateLabel,
+                    ref stableEmotionStreak,
+                    topEmotion.DominantEmotion,
+                    minStreakToLock: 3);
+                session.StableEmotionLabel = stableEmotionLabel;
+                session.EmotionCandidateLabel = emotionCandidateLabel;
+                session.StableEmotionStreak = stableEmotionStreak;
+                state.StableEmotionConfidence = topEmotion.Confidence;
+            }
+
+            state.StableDominantEmotion = session.StableEmotionLabel;
+
+            var topGesture = handGestures
+                .OrderByDescending(g => g.Confidence)
+                .FirstOrDefault();
+            if (topGesture != null && !string.IsNullOrWhiteSpace(topGesture.Type))
+            {
+                var stableGestureLabel = session.StableGestureLabel;
+                var gestureCandidateLabel = session.GestureCandidateLabel;
+                var stableGestureStreak = session.StableGestureStreak;
+                UpdateStableLabel(
+                    ref stableGestureLabel,
+                    ref gestureCandidateLabel,
+                    ref stableGestureStreak,
+                    topGesture.Type,
+                    minStreakToLock: 2);
+                session.StableGestureLabel = stableGestureLabel;
+                session.GestureCandidateLabel = gestureCandidateLabel;
+                session.StableGestureStreak = stableGestureStreak;
+                state.StableGestureConfidence = topGesture.Confidence;
+            }
+            state.StableGesture = session.StableGestureLabel;
+
+            var closedEyes = eyeMovements
+                .Where(e => e.IsBlinking)
+                .OrderBy(e => e.GazePoint.X)
+                .ToList();
+            var orderedEyes = eyeMovements
+                .OrderBy(e => e.GazePoint.X)
+                .ToList();
+
+            if (closedEyes.Count == 1 && orderedEyes.Count >= 2)
+            {
+                state.OneEyeClosed = true;
+                state.OneEyeClosedConfidence = closedEyes[0].Confidence;
+                state.OneEyeClosedSide = closedEyes[0].GazePoint.X <= orderedEyes[0].GazePoint.X ? "Left" : "Right";
+            }
+            else
+            {
+                state.OneEyeClosed = false;
+                state.OneEyeClosedSide = "None";
+                state.OneEyeClosedConfidence = 0.0;
+            }
+
+            state.UpdatedAt = DateTime.UtcNow;
+            return state;
+        }
+
+        private static void UpdateStableLabel(
+            ref string stableLabel,
+            ref string candidateLabel,
+            ref int streak,
+            string newLabel,
+            int minStreakToLock)
+        {
+            if (string.IsNullOrWhiteSpace(newLabel))
+            {
+                return;
+            }
+
+            if (string.Equals(stableLabel, newLabel, StringComparison.OrdinalIgnoreCase))
+            {
+                candidateLabel = newLabel;
+                streak = 0;
+                return;
+            }
+
+            if (!string.Equals(candidateLabel, newLabel, StringComparison.OrdinalIgnoreCase))
+            {
+                candidateLabel = newLabel;
+                streak = 1;
+            }
+            else
+            {
+                streak++;
+            }
+
+            if (streak >= minStreakToLock)
+            {
+                stableLabel = newLabel;
+                streak = 0;
+            }
         }
 
         private bool ShouldSkipFrame(SessionData session)
@@ -899,7 +1017,7 @@ namespace STAR_MUTIMEDIA.Services
                         Handedness = "Unknown",
                         TrackId = detectionData.Hands.Count
                     };
-                    handDetection.Gesture = InferGestureWithModel(handDetection);
+                    handDetection.Gesture = InferGestureWithModel(handDetection, session.Settings.EnableModelEnhancedPipeline);
                     detectionData.Hands.Add(handDetection);
                 }
 
@@ -1788,8 +1906,13 @@ namespace STAR_MUTIMEDIA.Services
             return expression;
         }
 
-        private HandGesture InferGestureWithModel(HandDetection hand)
+        private HandGesture InferGestureWithModel(HandDetection hand, bool useEnhancedPipeline = false)
         {
+            if (useEnhancedPipeline && hand?.Landmarks?.Count >= 5)
+            {
+                return InferGestureFromLandmarkHeuristics(hand);
+            }
+
             var width = Math.Max(1.0, hand.BBox.Width);
             var height = Math.Max(1.0, hand.BBox.Height);
             var area = width * height;
@@ -1820,6 +1943,60 @@ namespace STAR_MUTIMEDIA.Services
                     _ => "Closed hand posture"
                 }
             };
+        }
+
+        private HandGesture InferGestureFromLandmarkHeuristics(HandDetection hand)
+        {
+            var points = hand.Landmarks;
+            var spreadX = points.Max(p => p.X) - points.Min(p => p.X);
+            var spreadY = points.Max(p => p.Y) - points.Min(p => p.Y);
+            var spreadScore = Math.Clamp((spreadX + spreadY) / 2.0, 0.0, 1.0);
+
+            var type = spreadScore > 0.35 ? "OpenPalm" : "Fist";
+            var confidence = Math.Clamp(0.55 + spreadScore * 0.35, 0.1, 0.99);
+
+            return new HandGesture
+            {
+                BBox = hand.BBox,
+                Handedness = hand.Handedness ?? "Unknown",
+                Type = type,
+                Confidence = confidence,
+                Meaning = type == "OpenPalm" ? "Open hand detected (landmark fusion)" : "Closed hand detected (landmark fusion)",
+                KeyPoints = new List<LandmarkPoint>(points)
+            };
+        }
+
+        private void ApplyConfidenceFusion(
+            DetectionData detectionData,
+            List<FaceExpression> faceExpressions,
+            List<HandGesture> handGestures,
+            List<EyeMovement> eyeMovements)
+        {
+            foreach (var expression in faceExpressions)
+            {
+                var face = detectionData.Faces.FirstOrDefault(f => f.TrackId == expression.FaceId);
+                if (face != null)
+                {
+                    expression.Confidence = Math.Clamp(expression.Confidence * 0.70 + face.Confidence * 0.30, 0.1, 0.99);
+                }
+            }
+
+            for (var i = 0; i < handGestures.Count && i < detectionData.Hands.Count; i++)
+            {
+                handGestures[i].Confidence = Math.Clamp(
+                    handGestures[i].Confidence * 0.75 + detectionData.Hands[i].Confidence * 0.25,
+                    0.1,
+                    0.99);
+            }
+
+            for (var i = 0; i < eyeMovements.Count && i < detectionData.Eyes.Count; i++)
+            {
+                eyeMovements[i].Confidence = Math.Clamp(
+                    eyeMovements[i].Confidence * 0.70 + detectionData.Eyes[i].Confidence * 0.30,
+                    0.1,
+                    0.99);
+                eyeMovements[i].GazeConfidence = eyeMovements[i].Confidence;
+            }
         }
 
         private Dictionary<string, double> Softmax(Dictionary<string, double> logits)
