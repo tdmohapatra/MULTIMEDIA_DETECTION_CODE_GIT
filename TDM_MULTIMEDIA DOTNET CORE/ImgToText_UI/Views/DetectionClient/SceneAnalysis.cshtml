@@ -1,0 +1,225 @@
+@{
+    ViewData["Title"] = "Scene: humans, animals & objects";
+    var apiBaseUrl = (ViewData["ApiBaseUrl"]?.ToString() ?? "http://localhost:5078").TrimEnd('/');
+}
+
+<style>
+    .scene-shell { background: #0e1520; color: #e8f0ff; border-radius: 12px; padding: 12px; border: 1px solid #2a4570; }
+    .scene-stack { position: relative; width: 100%; border-radius: 10px; overflow: hidden; background: #050914; min-height: 320px; }
+    .scene-video, .scene-overlay { position: absolute; inset: 0; width: 100%; height: 100%; }
+    .scene-overlay { pointer-events: none; }
+    .scene-hud { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; font-size: 12px; }
+    .scene-badge { padding: 4px 10px; border-radius: 999px; background: #152238; border: 1px solid #35517f; }
+</style>
+
+<nav class="mb-2" aria-label="breadcrumb">
+    <ol class="breadcrumb small mb-0">
+        <li class="breadcrumb-item"><a asp-controller="Home" asp-action="Index">Home</a></li>
+        <li class="breadcrumb-item active" aria-current="page">Scene analysis</li>
+    </ol>
+</nav>
+
+<div class="row g-3">
+    <div class="col-lg-8">
+        <h4 class="mb-2">Humans, animals &amp; objects in frame</h4>
+        <p class="text-muted small">
+            Uses <code>processingMode: &quot;scene&quot;</code> on the API. VOC MobileNet-SSD when both model files are under the API <code>Uploads/models</code> folder; otherwise Haar hybrid (face, full-body, optional cat face cascade).
+            Frame timing logs: API <code>Uploads/frame-logs/&lt;sessionId&gt;.log</code>.
+        </p>
+        <div class="scene-shell">
+            <div class="scene-stack">
+                <video id="sceneVideo" autoplay playsinline class="scene-video"></video>
+                <canvas id="sceneOverlay" class="scene-overlay"></canvas>
+            </div>
+            <div class="scene-hud">
+                <span class="scene-badge">Pipeline: <strong id="scenePipeline">—</strong></span>
+                <span class="scene-badge">Frame time: <strong id="sceneFrameMs">0</strong> ms</span>
+                <span class="scene-badge">Summary: <strong id="sceneSummary">—</strong></span>
+                <span class="scene-badge">WS: <span id="sceneWs">—</span></span>
+            </div>
+        </div>
+        <canvas id="sceneCapture" class="d-none"></canvas>
+    </div>
+    <div class="col-lg-4">
+        <div class="card border-secondary">
+            <div class="card-body">
+                <label class="form-label">API Base Url</label>
+                <input id="sceneApiBase" class="form-control form-control-sm mb-2" value="@apiBaseUrl" />
+                <label class="form-label">Session Id</label>
+                <input id="sceneSessionId" class="form-control form-control-sm mb-2" />
+                <div class="d-flex gap-2 mb-2">
+                    <button id="sceneStartBtn" type="button" class="btn btn-primary btn-sm">Start</button>
+                    <button id="sceneStopBtn" type="button" class="btn btn-secondary btn-sm">Stop</button>
+                </div>
+                <label class="form-label">FPS</label>
+                <input id="sceneFps" type="range" min="2" max="30" value="10" class="form-range" />
+                <small class="text-muted"><span id="sceneFpsVal">10</span> fps</small>
+                <pre id="sceneJson" class="small bg-dark text-info p-2 mt-2 border rounded" style="max-height:220px;overflow:auto;"></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.7/signalr.min.js"></script>
+<script>
+(() => {
+    const video = document.getElementById('sceneVideo');
+    const overlay = document.getElementById('sceneOverlay');
+    const capture = document.getElementById('sceneCapture');
+    const apiInput = document.getElementById('sceneApiBase');
+    const sessionInput = document.getElementById('sceneSessionId');
+    const fpsInput = document.getElementById('sceneFps');
+    const fpsVal = document.getElementById('sceneFpsVal');
+    const jsonOut = document.getElementById('sceneJson');
+    let stream = null;
+    let frame = 0;
+    let inFlight = false;
+    let lastAt = 0;
+    let rafHandle = null;
+    let hubConnection = null;
+    let useWs = false;
+
+    function baseUrl() { return apiInput.value.replace(/\/$/, ''); }
+    function sid() { return sessionInput.value.trim(); }
+
+    const colors = {
+        Human: '#00e5ff',
+        Animal: '#7cfc4f',
+        Object: '#ffb020'
+    };
+
+    sessionInput.value = `ui-${crypto.randomUUID().slice(0, 8)}`;
+    fpsInput.addEventListener('input', () => { fpsVal.textContent = fpsInput.value; });
+
+    async function connectHub() {
+        if (!window.signalR || hubConnection) return;
+        hubConnection = new signalR.HubConnectionBuilder()
+            .withUrl(`${baseUrl()}/detectionHub`)
+            .withAutomaticReconnect()
+            .build();
+        try {
+            await hubConnection.start();
+            await hubConnection.invoke('JoinSession', sid());
+            useWs = true;
+            document.getElementById('sceneWs').textContent = 'Connected';
+        } catch (e) {
+            console.warn(e);
+            useWs = false;
+            document.getElementById('sceneWs').textContent = 'HTTP';
+        }
+    }
+
+    async function processFrame() {
+        if (!stream) return;
+        const w = video.videoWidth || 640;
+        const h = video.videoHeight || 360;
+        capture.width = w;
+        capture.height = h;
+        overlay.width = w;
+        overlay.height = h;
+        const ctx = capture.getContext('2d');
+        ctx.drawImage(video, 0, 0, w, h);
+        const imageData = capture.toDataURL('image/jpeg', 0.55);
+        const payload = {
+            sessionId: sid(),
+            frameNumber: ++frame,
+            timestamp: Date.now(),
+            imageData,
+            processingMode: 'scene'
+        };
+
+        let data = null;
+        if (useWs && hubConnection) {
+            try {
+                data = await hubConnection.invoke('ProcessFrame', payload);
+            } catch {
+                useWs = false;
+            }
+        }
+        if (!data) {
+            const r = await fetch(`${baseUrl()}/api/detection/process-frame`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!r.ok) {
+                jsonOut.textContent = await r.text();
+                return;
+            }
+            data = await r.json();
+        }
+
+        const sa = data.sceneAnalysis || {};
+        document.getElementById('scenePipeline').textContent = sa.pipeline || '—';
+        document.getElementById('sceneFrameMs').textContent = (sa.frameProcessingMs ?? 0).toFixed(1);
+        document.getElementById('sceneSummary').textContent = sa.summary || 'none';
+
+        const octx = overlay.getContext('2d');
+        octx.clearRect(0, 0, overlay.width, overlay.height);
+        const entities = sa.entities || [];
+        entities.forEach(ent => {
+            const bb = ent.bBox || ent.bbox;
+            if (!bb) return;
+            const col = colors[ent.category] || '#ffffff';
+            octx.strokeStyle = col;
+            octx.lineWidth = 2;
+            octx.strokeRect(bb.x, bb.y, bb.width, bb.height);
+            octx.font = '13px Segoe UI';
+            octx.fillStyle = col;
+            const label = `${ent.category}: ${ent.label}`;
+            octx.fillText(label, bb.x, Math.max(12, bb.y - 4));
+        });
+
+        jsonOut.textContent = JSON.stringify({
+            pipeline: sa.pipeline,
+            frameProcessingMs: sa.frameProcessingMs,
+            summary: sa.summary,
+            entities: entities.length,
+            notes: sa.notes
+        }, null, 2);
+    }
+
+    function loop() {
+        const tick = async () => {
+            if (!stream) return;
+            const interval = 1000 / Math.max(2, parseInt(fpsInput.value, 10) || 10);
+            const now = performance.now();
+            if (!inFlight && (now - lastAt) >= interval) {
+                inFlight = true;
+                lastAt = now;
+                try { await processFrame(); } finally { inFlight = false; }
+            }
+            rafHandle = requestAnimationFrame(tick);
+        };
+        rafHandle = requestAnimationFrame(tick);
+    }
+
+    document.getElementById('sceneStartBtn').addEventListener('click', async () => {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        video.srcObject = stream;
+        await fetch(`${baseUrl()}/api/detection/initialize/${encodeURIComponent(sid())}`, { method: 'POST' });
+        await connectHub();
+        loop();
+    });
+
+    document.getElementById('sceneStopBtn').addEventListener('click', async () => {
+        if (rafHandle) cancelAnimationFrame(rafHandle);
+        rafHandle = null;
+        if (stream) {
+            stream.getTracks().forEach(t => t.stop());
+            stream = null;
+        }
+        if (hubConnection) {
+            try {
+                await hubConnection.invoke('LeaveSession', sid());
+                await hubConnection.stop();
+            } catch (e) { console.warn(e); }
+            hubConnection = null;
+        }
+        await fetch(`${baseUrl()}/api/detection/cleanup/${encodeURIComponent(sid())}`, { method: 'POST' });
+        document.getElementById('sceneWs').textContent = '—';
+    });
+})();
+</script>
+}

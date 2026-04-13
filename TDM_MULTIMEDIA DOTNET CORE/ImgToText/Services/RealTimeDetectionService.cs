@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -8,6 +8,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using OpenCvSharp;
+using OpenCvSharp.Dnn;
 using OpenCvSharp.Extensions;
 using STAR_MUTIMEDIA.Models;
 using STAR_MUTIMEDIA.Services.Plugins;
@@ -20,7 +21,7 @@ using Size = OpenCvSharp.Size;
 
 namespace STAR_MUTIMEDIA.Services
 {
-    public class RealTimeDetectionService : IRealTimeDetectionService, IDisposable
+    public partial class RealTimeDetectionService : IRealTimeDetectionService, IDisposable
     {
         private readonly string _tessDataPath;
         private readonly ConcurrentDictionary<string, SessionData> _sessions;
@@ -30,10 +31,16 @@ namespace STAR_MUTIMEDIA.Services
         private readonly List<MonitoringOption> _availableMonitoringOptions;
         private readonly CascadeClassifier _faceCascade;
         private readonly CascadeClassifier _eyeCascade;
+        private readonly CascadeClassifier _leftEarCascade;
+        private readonly CascadeClassifier _rightEarCascade;
         private readonly CascadeClassifier _handCascade;
         private readonly CascadeClassifier _smile;
         private readonly CascadeClassifier _fullbody;
         private readonly CascadeClassifier _LicencePlate;
+        private readonly CascadeClassifier _catFaceCascade;
+        private Net? _mobileNetSsd;
+        private readonly object _ssdLoadLock = new object();
+        private bool _mobileNetSsdLoadFailed;
         private readonly List<IDetectionPlugin> _detectionPlugins;
 
         public RealTimeDetectionService(string tessDataPath)
@@ -51,12 +58,15 @@ namespace STAR_MUTIMEDIA.Services
 
             // Initialize cascades with fallback
             var cascadesPath = GetCascadesPath();
-            _faceCascade = LoadCascadeClassifier(Path.Combine(cascadesPath, "haarcascade_frontalface_alt.xml"));
-            _eyeCascade = LoadCascadeClassifier(Path.Combine(cascadesPath, "haarcascade_eye.xml"));
-            _handCascade = LoadCascadeClassifier(Path.Combine(cascadesPath, "haarcascade_upperbody.xml"));
-            _smile = LoadCascadeClassifier(Path.Combine(cascadesPath, "haarcascade_smile.xml"));
-            _fullbody = LoadCascadeClassifier(Path.Combine(cascadesPath, "haarcascade_fullbody.xml"));
-            _LicencePlate = LoadCascadeClassifier(Path.Combine(cascadesPath, "haarcascade_license_plate_rus_16stages.xml"));
+            _faceCascade = LoadCascadeClassifier(ResolveCascadePath(cascadesPath, "haarcascade_frontalface_alt.xml"));
+            _eyeCascade = LoadCascadeClassifier(ResolveCascadePath(cascadesPath, "haarcascade_eye.xml"));
+            _leftEarCascade = LoadCascadeClassifier(ResolveCascadePath(cascadesPath, "haarcascade_mcs_leftear.xml"));
+            _rightEarCascade = LoadCascadeClassifier(ResolveCascadePath(cascadesPath, "haarcascade_mcs_rightear.xml"));
+            _handCascade = LoadCascadeClassifier(ResolveCascadePath(cascadesPath, "haarcascade_upperbody.xml"));
+            _smile = LoadCascadeClassifier(ResolveCascadePath(cascadesPath, "haarcascade_smile.xml"));
+            _fullbody = LoadCascadeClassifier(ResolveCascadePath(cascadesPath, "haarcascade_fullbody.xml"));
+            _catFaceCascade = LoadCascadeClassifier(ResolveCascadePath(cascadesPath, "haarcascade_frontalcatface.xml"));
+            _LicencePlate = LoadCascadeClassifier(ResolveCascadePath(cascadesPath, "haarcascade_license_plate_rus_16stages.xml"));
             _detectionPlugins = new List<IDetectionPlugin>
             {
                 new LowLightDetectionPlugin(),
@@ -117,6 +127,26 @@ namespace STAR_MUTIMEDIA.Services
                 Debug.WriteLine($"Error loading cascade {cascadePath}: {ex.Message}");
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Resolve classifier/model file from preferred cascades path, then common fallback folders.
+        /// This allows users to drop cascades into Uploads/models as well.
+        /// </summary>
+        private string ResolveCascadePath(string preferredCascadesPath, string fileName)
+        {
+            var candidates = new[]
+            {
+                Path.Combine(preferredCascadesPath ?? string.Empty, fileName),
+                Path.Combine(Directory.GetCurrentDirectory(), "Uploads", "cascades", fileName),
+                Path.Combine(Directory.GetCurrentDirectory(), "Uploads", "models", fileName),
+                Path.Combine(Directory.GetCurrentDirectory(), "cascades", fileName),
+                Path.Combine(AppContext.BaseDirectory, "cascades", fileName),
+                Path.Combine(AppContext.BaseDirectory, "Uploads", "cascades", fileName),
+                Path.Combine(AppContext.BaseDirectory, "Uploads", "models", fileName)
+            };
+
+            return candidates.FirstOrDefault(File.Exists) ?? Path.Combine(preferredCascadesPath ?? string.Empty, fileName);
         }
 
         private List<MonitoringOption> InitializeMonitoringOptions()
@@ -196,6 +226,9 @@ namespace STAR_MUTIMEDIA.Services
                 {
                     session.FramesToSkip--;
                     result.Stats = session.Stats.Clone();
+                    result.BehaviorAnalysis = new BehaviorAnalysis();
+                    result.HumanTracking = new HumanTrackingState();
+                    result.SceneAnalysis = new SceneAnalysisResult { Pipeline = "disabled" };
                     result.Notifications.Add(new DetectionNotification
                     {
                         Type = "System",
@@ -247,7 +280,7 @@ namespace STAR_MUTIMEDIA.Services
                             }
 
                             session.Stats.AverageBrightness = EstimateSceneBrightness(mat);
-                            var processedMat = ProcessFrame(mat, session, notifications, logs, detectionData);
+                            var processedMat = ProcessFrame(mat, session, notifications, logs, detectionData, frameData.ProcessingMode ?? "standard");
                             var outputMat = processedMat.Clone();
                             // Convert back to base64 only if processing was successful
                             if (!outputMat.Empty())
@@ -298,6 +331,19 @@ namespace STAR_MUTIMEDIA.Services
                 result.EyeMovements = eyeMovements;
                 result.VitalMetrics = vitalMetrics;
                 result.MonitoringState = monitoringState;
+                result.HumanTracking = BuildHumanTrackingState(session, detectionData, session.Stats);
+                result.BehaviorAnalysis = BuildBehaviorAnalysis(detectionData, session.Stats, monitoringState);
+                if (string.Equals(frameData.ProcessingMode, "scene", StringComparison.OrdinalIgnoreCase))
+                {
+                    result.SceneAnalysis = session.LastSceneAnalysis ?? new SceneAnalysisResult();
+                    result.SceneAnalysis.FrameProcessingMs = stopwatch.Elapsed.TotalMilliseconds;
+                    result.SceneAnalysis.Summary = BuildSceneEntitySummary(result.SceneAnalysis.Entities);
+                    AppendSceneFrameTimeLog(session.SessionId, frameData.FrameNumber, stopwatch.Elapsed.TotalMilliseconds, result.SceneAnalysis.Summary, result.SceneAnalysis.Pipeline);
+                }
+                else
+                {
+                    result.SceneAnalysis = new SceneAnalysisResult { Pipeline = "disabled" };
+                }
                 result.Calibration = new CalibrationResult
                 {
                     SessionId = session.SessionId,
@@ -350,7 +396,6 @@ namespace STAR_MUTIMEDIA.Services
             var basicResult = await ProcessFrameAsync(frameData);
             var enhancedResult = new EnhancedDetectionResult
             {
-                // Copy basic result properties
                 ImageData = basicResult.ImageData,
                 Stats = basicResult.Stats,
                 Notifications = basicResult.Notifications,
@@ -359,17 +404,17 @@ namespace STAR_MUTIMEDIA.Services
                 CapturedText = basicResult.CapturedText,
                 Success = basicResult.Success,
                 ErrorMessage = basicResult.ErrorMessage,
-
-                // Enhanced features
-                FaceExpressions = new List<FaceExpression>(),
-                HandGestures = new List<HandGesture>(),
-                EyeMovements = new List<EyeMovement>(),
-                VitalMetrics = new VitalMetrics(),
-                EmotionAnalysis = new EmotionAnalysis(),
-                BehaviorAnalysis = new BehaviorAnalysis()
+                FaceExpressions = basicResult.FaceExpressions ?? new List<FaceExpression>(),
+                HandGestures = basicResult.HandGestures ?? new List<HandGesture>(),
+                EyeMovements = basicResult.EyeMovements ?? new List<EyeMovement>(),
+                VitalMetrics = basicResult.VitalMetrics ?? new VitalMetrics(),
+                MonitoringState = basicResult.MonitoringState,
+                BehaviorAnalysis = basicResult.BehaviorAnalysis ?? new BehaviorAnalysis(),
+                HumanTracking = basicResult.HumanTracking ?? new HumanTrackingState(),
+                SceneAnalysis = basicResult.SceneAnalysis ?? new SceneAnalysisResult(),
+                EmotionAnalysis = new EmotionAnalysis()
             };
 
-            // Add enhanced processing here if needed
             if (basicResult.Success && basicResult.Detections?.Faces?.Count > 0)
             {
                 enhancedResult.FaceExpressions = AnalyzeFaceExpressions(basicResult.Detections.Faces);
@@ -605,6 +650,166 @@ namespace STAR_MUTIMEDIA.Services
             return state;
         }
 
+        private static HumanTrackingState BuildHumanTrackingState(SessionData session, DetectionData data, DetectionStats stats)
+        {
+            var ht = new HumanTrackingState
+            {
+                ActiveFaceTracks = data?.Faces?.Count ?? 0,
+                ActiveHandTracks = data?.Hands?.Count ?? 0,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            var est = ht.ActiveFaceTracks;
+            if (est == 0 && ht.ActiveHandTracks > 0)
+                est = 1;
+            ht.EstimatedPersonCount = est;
+
+            var subjects = new List<SubjectTrackSnapshot>();
+
+            if (data?.Faces != null && data.Faces.Count > 0)
+            {
+                var primary = data.Faces.OrderByDescending(f => f.BBox?.Area ?? 0).First();
+                var cx = primary.BBox.Center.X;
+                var cy = primary.BBox.Center.Y;
+                var speed = 0.0;
+                if (session.HasLastPrimaryFaceCenter)
+                {
+                    var dx = cx - session.LastPrimaryFaceCenterX;
+                    var dy = cy - session.LastPrimaryFaceCenterY;
+                    speed = Math.Sqrt(dx * dx + dy * dy);
+                }
+
+                session.LastPrimaryFaceCenterX = cx;
+                session.LastPrimaryFaceCenterY = cy;
+                session.HasLastPrimaryFaceCenter = true;
+                ht.PrimarySubjectSpeed = speed;
+
+                subjects.Add(new SubjectTrackSnapshot
+                {
+                    TrackId = primary.TrackId,
+                    Kind = "Face",
+                    CenterX = cx,
+                    CenterY = cy,
+                    Speed = speed,
+                    Label = "PrimaryFace"
+                });
+
+                foreach (var f in data.Faces)
+                {
+                    if (ReferenceEquals(f, primary))
+                        continue;
+                    var c = f.BBox.Center;
+                    subjects.Add(new SubjectTrackSnapshot
+                    {
+                        TrackId = f.TrackId,
+                        Kind = "Face",
+                        CenterX = c.X,
+                        CenterY = c.Y,
+                        Speed = 0,
+                        Label = "Face"
+                    });
+                }
+            }
+            else
+            {
+                session.HasLastPrimaryFaceCenter = false;
+                ht.PrimarySubjectSpeed = 0;
+            }
+
+            if (data?.Hands != null)
+            {
+                foreach (var h in data.Hands)
+                {
+                    var c = h.BBox.Center;
+                    subjects.Add(new SubjectTrackSnapshot
+                    {
+                        TrackId = h.TrackId,
+                        Kind = "Hand",
+                        CenterX = c.X,
+                        CenterY = c.Y,
+                        Speed = 0,
+                        Label = h.Gesture?.Type ?? "Hand"
+                    });
+                }
+            }
+
+            ht.Subjects = subjects;
+            return ht;
+        }
+
+        private static BehaviorAnalysis BuildBehaviorAnalysis(
+            DetectionData data,
+            DetectionStats stats,
+            MonitoringState mon)
+        {
+            var b = new BehaviorAnalysis { LastUpdate = DateTime.UtcNow };
+            var movement = stats.CurrentMovementLevel;
+
+            b.ActivityScore = Math.Clamp(
+                movement * 1.8
+                + (stats.GesturesDetected ? 18 : 0)
+                + (stats.ExpressionsDetected ? 12 : 0),
+                0, 100);
+
+            if (movement < 8)
+                b.SceneDynamics = "Calm";
+            else if (movement < 22)
+                b.SceneDynamics = "Active";
+            else
+                b.SceneDynamics = "Volatile";
+
+            var faceCount = data?.Faces?.Count ?? 0;
+            var handCount = data?.Hands?.Count ?? 0;
+            var gestureBoost = string.Equals(mon.StableGesture, "None", StringComparison.OrdinalIgnoreCase) ? 0 : 25;
+            var interactScore = faceCount * 15 + handCount * 20 + gestureBoost;
+            if (interactScore < 25)
+                b.InteractionLevel = "Low";
+            else if (interactScore < 55)
+                b.InteractionLevel = "Medium";
+            else
+                b.InteractionLevel = "High";
+
+            b.EngagementLevel = Math.Clamp(
+                mon.StableEmotionConfidence * 35
+                + mon.StableGestureConfidence * 35
+                + b.ActivityScore * 0.3,
+                0, 100);
+
+            b.Posture = "Unknown";
+            if (faceCount > 0 && data.Faces != null)
+            {
+                var f = data.Faces.OrderByDescending(x => x.BBox?.Area ?? 0).First();
+                var bb = f.BBox;
+                if (bb != null)
+                {
+                    var ar = bb.Width / Math.Max(1.0, bb.Height);
+                    if (bb.Area > 120 * 120 && ar > 0.65 && ar < 1.35)
+                        b.Posture = "FacingCamera";
+                    else if (bb.Area > 40 * 40)
+                        b.Posture = "Present";
+                    else
+                        b.Posture = "Distant";
+                }
+            }
+
+            b.DetectedBehaviors = new List<string>();
+            if (stats.MovementDetected)
+                b.DetectedBehaviors.Add("SceneMotion");
+            if (mon.OneEyeClosed)
+                b.DetectedBehaviors.Add($"OneEyeClosed:{mon.OneEyeClosedSide}");
+            if (!string.IsNullOrEmpty(mon.StableGesture) && !string.Equals(mon.StableGesture, "None", StringComparison.OrdinalIgnoreCase))
+                b.DetectedBehaviors.Add($"Gesture:{mon.StableGesture}");
+            if (!string.IsNullOrEmpty(mon.StableDominantEmotion)
+                && !string.Equals(mon.StableDominantEmotion, "Neutral", StringComparison.OrdinalIgnoreCase))
+                b.DetectedBehaviors.Add($"Affect:{mon.StableDominantEmotion}");
+            if (handCount > 0)
+                b.DetectedBehaviors.Add("HandActivity");
+            if (faceCount > 0)
+                b.DetectedBehaviors.Add("FacePresent");
+
+            return b;
+        }
+
         private static void UpdateStableLabel(
             ref string stableLabel,
             ref string candidateLabel,
@@ -681,7 +886,7 @@ namespace STAR_MUTIMEDIA.Services
         }
 
         private Mat ProcessFrame(Mat frame, SessionData session, List<DetectionNotification> notifications,
-            List<SystemLog> logs, DetectionData detectionData)
+            List<SystemLog> logs, DetectionData detectionData, string processingMode)
         {
             if (frame.Empty())
             {
@@ -744,6 +949,15 @@ namespace STAR_MUTIMEDIA.Services
                     if (IsMonitoringEnabled(config, "TextDetection") && stats.TotalFramesProcessed % 15 == 0)
                     {
                         SafeTextDetection(processedFrame, stats, notifications, logs, session, detectionData);
+                    }
+
+                    if (string.Equals(processingMode, "scene", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunSceneEntityDetection(processedFrame, grayFrame, session, detectionData, logs);
+                    }
+                    else
+                    {
+                        session.LastSceneAnalysis = null;
                     }
 
                     // Update previous frame
@@ -909,6 +1123,7 @@ namespace STAR_MUTIMEDIA.Services
 
                 stats.FacesDetected = filteredFaces.Count;
                 detectionData.Faces.Clear();
+                detectionData.Ears.Clear();
 
                 foreach (var face in filteredFaces)
                 {
@@ -949,9 +1164,14 @@ namespace STAR_MUTIMEDIA.Services
                     {
                         SafeEyeDetection(processedFrame, grayFrame, face, stats, detectionData);
                     }
+
+                    SafeEarDetection(processedFrame, grayFrame, face, detectionData);
+
+                    SafeLipsDetection(processedFrame, grayFrame, face, detectionData);
                 }
 
                 stats.FacesDetected = detectionData.Faces.Count;
+                stats.EarsDetected = detectionData.Ears.Count;
 
                 if (detectionData.Faces.Count > 0 && !session.LastFaceState)
                 {
@@ -1041,6 +1261,137 @@ namespace STAR_MUTIMEDIA.Services
             catch (Exception ex)
             {
                 Debug.WriteLine($"Eye detection error: {ex.Message}");
+            }
+        }
+
+        private void SafeEarDetection(Mat processedFrame, Mat grayFrame, Rect face, DetectionData detectionData)
+        {
+            if ((_leftEarCascade == null || _leftEarCascade.Empty()) &&
+                (_rightEarCascade == null || _rightEarCascade.Empty()))
+            {
+                return;
+            }
+
+            try
+            {
+                var faceROI = grayFrame[face];
+                var earMin = new Size(18, 18);
+
+                void TryAdd(CascadeClassifier cascade, string side, Scalar color)
+                {
+                    if (cascade == null || cascade.Empty())
+                    {
+                        return;
+                    }
+
+                    var ears = cascade.DetectMultiScale(
+                        faceROI,
+                        1.1,
+                        5,
+                        HaarDetectionTypes.ScaleImage,
+                        earMin);
+
+                    foreach (var ear in ears)
+                    {
+                        var earRect = new Rect(face.X + ear.X, face.Y + ear.Y, ear.Width, ear.Height);
+                        Cv2.Rectangle(processedFrame, earRect, color, 1);
+                        Cv2.PutText(
+                            processedFrame,
+                            side == "Left" ? "EarL" : "EarR",
+                            new Point(earRect.X, earRect.Y - 4),
+                            HersheyFonts.HersheySimplex,
+                            0.35,
+                            color,
+                            1);
+
+                        detectionData.Ears.Add(new EarDetection
+                        {
+                            BBox = new BoundingBox
+                            {
+                                X = earRect.X,
+                                Y = earRect.Y,
+                                Width = earRect.Width,
+                                Height = earRect.Height
+                            },
+                            Confidence = 0.68,
+                            Side = side,
+                            TrackId = detectionData.Ears.Count
+                        });
+                    }
+                }
+
+                TryAdd(_leftEarCascade, "Left", new Scalar(255, 0, 255));
+                TryAdd(_rightEarCascade, "Right", new Scalar(0, 255, 255));
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Ear detection error: {ex.Message}");
+            }
+        }
+
+        private void SafeLipsDetection(Mat processedFrame, Mat grayFrame, Rect face, DetectionData detectionData)
+        {
+            try
+            {
+                if (_smile == null || _smile.Empty())
+                {
+                    return;
+                }
+
+                var mouthRegion = new Rect(
+                    face.X,
+                    face.Y + (int)(face.Height * 0.45),
+                    face.Width,
+                    (int)(face.Height * 0.50));
+                mouthRegion = mouthRegion.Intersect(new Rect(0, 0, grayFrame.Width, grayFrame.Height));
+                if (mouthRegion.Width < 8 || mouthRegion.Height < 8)
+                {
+                    return;
+                }
+
+                using (var mouthRoi = grayFrame[mouthRegion])
+                {
+                    var mouths = _smile.DetectMultiScale(
+                        mouthRoi,
+                        1.2,
+                        12,
+                        HaarDetectionTypes.ScaleImage,
+                        new Size(15, 10));
+                    if (mouths.Length == 0)
+                    {
+                        return;
+                    }
+
+                    var mouth = mouths.OrderByDescending(m => m.Width * m.Height).First();
+                    var mouthRect = new Rect(
+                        mouthRegion.X + mouth.X,
+                        mouthRegion.Y + mouth.Y,
+                        mouth.Width,
+                        mouth.Height);
+
+                    Cv2.Rectangle(processedFrame, mouthRect, Scalar.Magenta, 1);
+                    Cv2.PutText(processedFrame, "Lips",
+                        new Point(mouthRect.X, mouthRect.Y - 4),
+                        HersheyFonts.HersheySimplex, 0.35, Scalar.Magenta, 1);
+
+                    detectionData.Objects.Add(new ObjectDetection
+                    {
+                        Type = "Lips",
+                        Confidence = 0.72,
+                        AdditionalInfo = "Mouth region",
+                        BBox = new BoundingBox
+                        {
+                            X = mouthRect.X,
+                            Y = mouthRect.Y,
+                            Width = mouthRect.Width,
+                            Height = mouthRect.Height
+                        }
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Lips detection error: {ex.Message}");
             }
         }
 
@@ -1570,8 +1921,33 @@ namespace STAR_MUTIMEDIA.Services
             if (_sessions.TryGetValue(sessionId, out var session))
             {
                 session.Settings = settings ?? new DetectionSettings();
+                ApplyDetectionSettingsToMonitoringOptions(session);
                 PersistSessionProfile(session, "default");
             }
+        }
+
+        /// <summary>
+        /// Keeps <see cref="MonitoringConfiguration.EnabledOptions"/> in sync with <see cref="DetectionSettings"/>
+        /// so API POST /settings actually enables/disables pipeline stages (IsMonitoringEnabled reads options, not Settings alone).
+        /// </summary>
+        private static void ApplyDetectionSettingsToMonitoringOptions(SessionData session)
+        {
+            if (session?.MonitoringConfig?.EnabledOptions == null || session.Settings == null)
+                return;
+
+            void SetOption(string name, bool enabled)
+            {
+                var opt = session.MonitoringConfig.EnabledOptions.FirstOrDefault(o => o.Name == name);
+                if (opt != null)
+                    opt.IsEnabled = enabled;
+            }
+
+            SetOption("FaceDetection", session.Settings.EnableFaceDetection);
+            SetOption("EyeDetection", session.Settings.EnableEyeDetection);
+            SetOption("HandDetection", session.Settings.EnableHandDetection);
+            SetOption("MovementDetection", session.Settings.EnableMovementDetection);
+            SetOption("TextDetection", session.Settings.EnableTextDetection);
+            SetOption("CameraMovementAnalysis", session.Settings.EnableCameraMovementAnalysis);
         }
 
         public void InitializeSession(string sessionId)
@@ -1936,6 +2312,7 @@ namespace STAR_MUTIMEDIA.Services
                 }
 
                 session.Settings = profile.Settings ?? session.Settings ?? new DetectionSettings();
+                ApplyDetectionSettingsToMonitoringOptions(session);
                 session.BaselineMovement = profile.BaselineMovement > 0 ? profile.BaselineMovement : session.BaselineMovement;
                 session.IsCalibrating = false;
                 session.CalibrationFramesTotal = 0;
@@ -2163,7 +2540,11 @@ namespace STAR_MUTIMEDIA.Services
                     // Dispose cascade classifiers
                     _faceCascade?.Dispose();
                     _eyeCascade?.Dispose();
+                    _leftEarCascade?.Dispose();
+                    _rightEarCascade?.Dispose();
                     _handCascade?.Dispose();
+                    _catFaceCascade?.Dispose();
+                    _mobileNetSsd?.Dispose();
 
                     // Dispose session resources
                     foreach (var session in _sessions.Values)

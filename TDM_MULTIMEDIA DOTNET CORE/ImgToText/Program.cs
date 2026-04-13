@@ -6,9 +6,11 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using STAR_MUTIMEDIA.Hubs;
 using STAR_MUTIMEDIA.Services;
+using STAR_MUTIMEDIA.Services.Observability;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Diagnostics;
 
 var builder = WebApplication.CreateBuilder(args);
 var configuredTessDataPath = builder.Configuration["TessDataPath"];
@@ -87,17 +89,25 @@ builder.Services.AddScoped<IImageTextService>(provider =>
     return new ImageTextService(effectiveTessDataPath);
 });
 
-// Real-time detection service (test)
-builder.Services.AddSingleton<IRealTimeDetectionService_test>(provider =>
+// Test service is development-only to keep production container clean.
+if (builder.Environment.IsDevelopment())
 {
-    return new RealTimeDetectionService_test(effectiveTessDataPath);
-});
+    builder.Services.AddSingleton<IRealTimeDetectionService_test>(provider =>
+    {
+        return new RealTimeDetectionService_test(effectiveTessDataPath);
+    });
+}
 
 // Real-time detection service
 builder.Services.AddSingleton<IRealTimeDetectionService>(provider =>
 {
     return new RealTimeDetectionService(effectiveTessDataPath);
 });
+
+// Observability (production-grade logging + memory monitoring)
+builder.Services.AddSingleton<IApplicationLoggingService, ApplicationLoggingService>();
+builder.Services.AddSingleton<IMemoryMonitoringService, MemoryMonitoringService>();
+builder.Services.AddHostedService<MemoryMonitoringBackgroundService>();
 
 // ----------------------------------------------------------------------
 
@@ -121,6 +131,28 @@ app.UseCookiePolicy(new CookiePolicyOptions
     Secure = builder.Environment.IsDevelopment() ? CookieSecurePolicy.SameAsRequest : CookieSecurePolicy.Always
 });
 app.UseCors("AppCors");
+
+// Lightweight API request timing log
+app.Use(async (context, next) =>
+{
+    var sw = Stopwatch.StartNew();
+    await next();
+    sw.Stop();
+
+    if (context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase))
+    {
+        var logger = context.RequestServices.GetRequiredService<IApplicationLoggingService>();
+        logger.LogEvent(
+            category: "HttpRequest",
+            message: $"{context.Request.Method} {context.Request.Path} => {context.Response.StatusCode}",
+            metadata: new Dictionary<string, object>
+            {
+                ["elapsedMs"] = Math.Round(sw.Elapsed.TotalMilliseconds, 2),
+                ["traceId"] = context.TraceIdentifier
+            });
+    }
+});
+
 app.UseAuthorization();
 
 // Map routes
@@ -164,7 +196,9 @@ if (!Directory.Exists(cascadesPath))
 var requiredCascades = new[]
 {
     "haarcascade_frontalface_alt.xml",
-    "haarcascade_eye.xml"
+    "haarcascade_eye.xml",
+    "haarcascade_mcs_leftear.xml",
+    "haarcascade_mcs_rightear.xml"
 };
 
 foreach (var cascadeFile in requiredCascades)

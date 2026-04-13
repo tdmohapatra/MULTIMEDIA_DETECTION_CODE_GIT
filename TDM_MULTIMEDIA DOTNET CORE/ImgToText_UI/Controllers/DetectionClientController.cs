@@ -24,4 +24,12 @@ public class DetectionClientController : Controller
         ViewData["ApiBaseUrl"] = _configuration["DetectionApi:BaseUrl"] ?? "http://localhost:5078";
         return View("Index");
     }
+
+    [HttpGet("/SceneAnalysis")]
+    [HttpGet("/DetectionClient/SceneAnalysis")]
+    public IActionResult SceneAnalysis()
+    {
+        ViewData["ApiBaseUrl"] = _configuration["DetectionApi:BaseUrl"] ?? "http://localhost:5078";
+        return View();
+    }
 }

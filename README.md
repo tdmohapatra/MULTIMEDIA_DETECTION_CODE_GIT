@@ -26,6 +26,49 @@ Developed with **C# (.NET Core)** and integrated with **OpenCV**, **MediaPipe.NE
 
 ---
 
+## 🌐 UI Paths (Current)
+
+Assuming local defaults:
+- **UI Base URL:** `http://localhost:5080`
+- **API Base URL:** `http://localhost:5078`
+
+Open these pages in browser:
+- `http://localhost:5080/` → **Main menu / Home dashboard**
+- `http://localhost:5080/DetectionView` → **Live tracking & behavior workspace**
+- `http://localhost:5080/DetectionView/Index` → **Live tracking & behavior workspace** (same view)
+- `http://localhost:5080/DetectionClient/SceneAnalysis` → **Humans / animals / objects scene analysis**
+- `http://localhost:5080/Home/Privacy` → **Privacy page**
+
+Useful API path:
+- `http://localhost:5078/api/ ` → **API health status**
+
+---
+
+## 🏗️ Production-Grade Project Split
+
+- `ImgToText_UI` → **UI-only project** (all web pages, navigation, client scripts)
+- `ImgToText` → **API-only project** (OCR, detection, SignalR hub, observability endpoints)
+
+### New observability files (API)
+- `Services/Observability/IApplicationLoggingService.cs`
+- `Services/Observability/ApplicationLoggingService.cs`
+- `Services/Observability/IMemoryMonitoringService.cs`
+- `Services/Observability/MemoryMonitoringService.cs`
+- `Services/Observability/MemoryMonitoringBackgroundService.cs`
+- `Models/Observability/ApplicationLogEntry.cs`
+- `Models/Observability/MemorySnapshot.cs`
+- `Controllers/SystemMonitoringController.cs`
+
+### New observability API routes
+- `GET /api/system/health` → health + latest memory snapshot
+- `GET /api/system/memory?count=120` → memory history
+- `POST /api/system/memory/capture` → manual snapshot trigger
+- `GET /api/system/logs?count=150` → recent structured app logs
+
+Logs are persisted under: `ImgToText/logs/observability/`
+
+---
+
 ## 🧩 Technology Stack
 
 | Category | Tools & Frameworks |

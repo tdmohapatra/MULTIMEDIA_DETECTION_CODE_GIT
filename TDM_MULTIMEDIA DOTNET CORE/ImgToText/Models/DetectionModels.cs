@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 using OpenCvSharp;
@@ -9,6 +9,7 @@ namespace STAR_MUTIMEDIA.Models
     {
         public int FacesDetected { get; set; }
         public int EyesDetected { get; set; }
+        public int EarsDetected { get; set; }
         public int HandsDetected { get; set; }
         public int TotalFramesProcessed { get; set; }
         public double CurrentMovementLevel { get; set; }
@@ -42,6 +43,7 @@ namespace STAR_MUTIMEDIA.Models
             {
                 FacesDetected = this.FacesDetected,
                 EyesDetected = this.EyesDetected,
+                EarsDetected = this.EarsDetected,
                 HandsDetected = this.HandsDetected,
                 TotalFramesProcessed = this.TotalFramesProcessed,
                 CurrentMovementLevel = this.CurrentMovementLevel,
@@ -173,6 +175,9 @@ namespace STAR_MUTIMEDIA.Models
         public List<EyeMovement> EyeMovements { get; set; } = new List<EyeMovement>();
         public VitalMetrics VitalMetrics { get; set; } = new VitalMetrics();
         public MonitoringState MonitoringState { get; set; } = new MonitoringState();
+        public BehaviorAnalysis BehaviorAnalysis { get; set; } = new BehaviorAnalysis();
+        public HumanTrackingState HumanTracking { get; set; } = new HumanTrackingState();
+        public SceneAnalysisResult SceneAnalysis { get; set; } = new SceneAnalysisResult();
         public CalibrationResult Calibration { get; set; }
         public string CapturedText { get; set; }
         public bool Success { get; set; } = true;
@@ -192,10 +197,36 @@ namespace STAR_MUTIMEDIA.Models
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     }
 
+    /// <summary>
+    /// Per-frame snapshot for real-time human tracking (face/hand centroids, coarse motion).
+    /// </summary>
+    public class HumanTrackingState
+    {
+        public int EstimatedPersonCount { get; set; }
+        public int ActiveFaceTracks { get; set; }
+        public int ActiveHandTracks { get; set; }
+        /// <summary>Approximate primary face center speed in pixels/frame (largest face).</summary>
+        public double PrimarySubjectSpeed { get; set; }
+        public List<SubjectTrackSnapshot> Subjects { get; set; } = new List<SubjectTrackSnapshot>();
+        public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    }
+
+    public class SubjectTrackSnapshot
+    {
+        public int TrackId { get; set; }
+        /// <summary>Face or Hand</summary>
+        public string Kind { get; set; } = "Face";
+        public double CenterX { get; set; }
+        public double CenterY { get; set; }
+        public double Speed { get; set; }
+        public string Label { get; set; } = "";
+    }
+
     public class DetectionData
     {
         public List<FaceDetection> Faces { get; set; } = new List<FaceDetection>();
         public List<EyeDetection> Eyes { get; set; } = new List<EyeDetection>();
+        public List<EarDetection> Ears { get; set; } = new List<EarDetection>();
         public List<HandDetection> Hands { get; set; } = new List<HandDetection>();
         public List<TextDetection> TextRegions { get; set; } = new List<TextDetection>();
         public List<ObjectDetection> Objects { get; set; } = new List<ObjectDetection>();
@@ -216,6 +247,14 @@ namespace STAR_MUTIMEDIA.Models
         public double Confidence { get; set; }
         public string State { get; set; } // Open, Closed, Blinking
         public GazeDirection Gaze { get; set; }
+        public int TrackId { get; set; }
+    }
+
+    public class EarDetection
+    {
+        public BoundingBox BBox { get; set; } = new BoundingBox();
+        public double Confidence { get; set; }
+        public string Side { get; set; } // Left, Right (subject's left/right ear)
         public int TrackId { get; set; }
     }
 
@@ -245,6 +284,31 @@ namespace STAR_MUTIMEDIA.Models
         public string AdditionalInfo { get; set; }
     }
 
+    /// <summary>
+    /// Human / animal / object scene summary for processingMode=scene (MobileNet-SSD when models present, else Haar hybrid).
+    /// </summary>
+    public class SceneAnalysisResult
+    {
+        public string Pipeline { get; set; } = "disabled";
+        public List<SceneEntity> Entities { get; set; } = new List<SceneEntity>();
+        /// <summary>Server-side frame time for this request (ms), including scene pass.</summary>
+        public double FrameProcessingMs { get; set; }
+        public string Summary { get; set; } = "";
+        public string Notes { get; set; }
+    }
+
+    public class SceneEntity
+    {
+        /// <summary>Human, Animal, Object</summary>
+        public string Category { get; set; } = "Object";
+        /// <summary>VOC or cascade label, e.g. person, cat, dog, car</summary>
+        public string Label { get; set; } = "";
+        public double Confidence { get; set; }
+        public BoundingBox BBox { get; set; } = new BoundingBox();
+        /// <summary>ssd, face, fullbody, cat_cascade</summary>
+        public string Source { get; set; } = "";
+    }
+
     public class FrameData
     {
         public string ImageData { get; set; }
@@ -269,7 +333,6 @@ namespace STAR_MUTIMEDIA.Models
         public List<EyeMovement> EyeMovements { get; set; } = new List<EyeMovement>();
         public VitalMetrics VitalMetrics { get; set; } = new VitalMetrics();
         public EmotionAnalysis EmotionAnalysis { get; set; } = new EmotionAnalysis();
-        public BehaviorAnalysis BehaviorAnalysis { get; set; } = new BehaviorAnalysis();
     }
 
     public class FaceExpression
@@ -328,8 +391,16 @@ namespace STAR_MUTIMEDIA.Models
 
     public class BehaviorAnalysis
     {
-        public string Posture { get; set; }
+        /// <summary>Estimated upper-body / head posture label.</summary>
+        public string Posture { get; set; } = "Unknown";
+        /// <summary>0–100 composite engagement estimate.</summary>
         public double EngagementLevel { get; set; }
+        /// <summary>0–100 scene motion / activity intensity.</summary>
+        public double ActivityScore { get; set; }
+        /// <summary>Calm | Active | Volatile — from movement level.</summary>
+        public string SceneDynamics { get; set; } = "Calm";
+        /// <summary>Low | Medium | High — gestures + presence.</summary>
+        public string InteractionLevel { get; set; } = "Low";
         public List<string> DetectedBehaviors { get; set; } = new List<string>();
         public DateTime LastUpdate { get; set; } = DateTime.UtcNow;
     }
@@ -550,6 +621,13 @@ namespace STAR_MUTIMEDIA.Models
         public int StableGestureStreak { get; set; } = 0;
         public Queue<string> RecentGestureLabels { get; set; } = new Queue<string>();
         public double GestureConfidenceEma { get; set; } = 0.0;
+
+        public SceneAnalysisResult LastSceneAnalysis { get; set; }
+
+        /// <summary>Primary face centroid for speed estimation (pixel space).</summary>
+        public double LastPrimaryFaceCenterX { get; set; }
+        public double LastPrimaryFaceCenterY { get; set; }
+        public bool HasLastPrimaryFaceCenter { get; set; }
 
         public void UpdateFrameTime()
         {

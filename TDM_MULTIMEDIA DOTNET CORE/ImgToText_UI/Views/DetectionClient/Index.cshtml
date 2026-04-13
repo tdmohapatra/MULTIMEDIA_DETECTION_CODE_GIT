@@ -1,13 +1,13 @@
 @{
-    ViewData["Title"] = "Realtime Detection Client";
+    ViewData["Title"] = "Real-Time Human Tracking & Behavior Analysis";
     var apiBaseUrl = (ViewData["ApiBaseUrl"]?.ToString() ?? "http://localhost:5078").TrimEnd('/');
 }
 
 <style>
     .live-shell {
-        background: linear-gradient(145deg, #0b1220, #10192d);
-        color: #d9e5ff;
-        border: 1px solid #1f2b46;
+        background: linear-gradient(145deg, #0a0f1a, #111a2b);
+        color: #f2f7ff;
+        border: 1px solid #2a3d63;
     }
 
     .live-stack {
@@ -43,8 +43,9 @@
         font-size: 12px;
         padding: 4px 8px;
         border-radius: 999px;
-        background: #16213a;
-        border: 1px solid #28406d;
+        background: #1a2945;
+        border: 1px solid #3a5b91;
+        color: #f4f9ff;
     }
 
     .ops-grid {
@@ -63,8 +64,99 @@
         font-size: 12px;
         letter-spacing: 0.08em;
         text-transform: uppercase;
-        color: #9db3dd;
+        color: #cde0ff;
         margin-bottom: 6px;
+    }
+
+    .trail-stack {
+        margin-top: 12px;
+        border: 1px solid #2b3b61;
+        border-radius: 12px;
+        background: #060b17;
+        padding: 10px;
+    }
+
+    /* Full-frame aspect ratio: internal canvas matches video; CSS scales uniformly for accurate trails */
+    .trail-canvas-wrap {
+        width: 100%;
+        max-height: min(62vh, 720px);
+        margin: 0 auto;
+        position: relative;
+        border: 1px solid #30456f;
+        border-radius: 10px;
+        background: #040812;
+        overflow: hidden;
+        aspect-ratio: 16 / 9;
+        box-shadow: inset 0 0 0 1px rgba(48, 69, 111, 0.35);
+    }
+
+    .trail-canvas-wrap .trail-canvas {
+        position: absolute;
+        left: 0;
+        top: 0;
+        display: block;
+        width: 100%;
+        height: 100%;
+        image-rendering: -webkit-optimize-contrast;
+        image-rendering: crisp-edges;
+    }
+
+    .trail-zoom-hint {
+        font-size: 11px;
+        color: #9db3dd;
+        margin-top: 6px;
+    }
+
+    .legend-wrap {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 8px;
+        font-size: 12px;
+        color: #eaf2ff;
+    }
+
+    .legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .legend-chip {
+        width: 12px;
+        height: 12px;
+        border-radius: 3px;
+    }
+
+    .live-shell .text-secondary {
+        color: #cfe1ff !important;
+    }
+
+    .live-shell .form-label {
+        color: #eef5ff;
+        font-weight: 600;
+    }
+
+    .live-shell .form-control,
+    .live-shell .form-range {
+        background-color: #0d1628;
+        color: #f3f8ff;
+        border-color: #35517f;
+    }
+
+    .behavior-panel {
+        background: linear-gradient(180deg, #0d1628 0%, #0a101c 100%);
+        border: 1px solid #35517f;
+        border-radius: 10px;
+        font-size: 12px;
+    }
+
+    .behavior-panel .bh-item {
+        padding: 4px 10px;
+        border-radius: 8px;
+        background: #152238;
+        border: 1px solid #2a4570;
+        color: #e8f0ff;
     }
 
     @@media (max-width: 992px) {
@@ -74,8 +166,21 @@
     }
 </style>
 
+<nav class="mb-2" aria-label="breadcrumb">
+    <ol class="breadcrumb small mb-0">
+        <li class="breadcrumb-item"><a asp-controller="Home" asp-action="Index">Home</a></li>
+        <li class="breadcrumb-item active" aria-current="page">Live tracking &amp; behavior</li>
+    </ol>
+</nav>
+<div class="row g-2 mb-2">
+    <div class="col-12">
+        <h4 class="mb-1">Real-Time Human Tracking &amp; Behavior Analysis</h4>
+        <p class="text-muted small mb-0">Multi-signal fusion: face and hand tracks, stable gestures and affect, scene motion, and engagement proxies. API port 5078.</p>
+    </div>
+</div>
+
 <div class="row g-3">
-    <div class="col-lg-8">
+    <div class="col-12 col-xl-8">
         <div class="monitor-grid">
             <div>
                 <div class="monitor-title">Original Screen</div>
@@ -90,23 +195,55 @@
                 </div>
             </div>
         </div>
+        <div class="trail-stack">
+            <div class="monitor-title">Trail Analytics Canvas (Eyes/Ears/Nose/Lips/Hand/Fingers)</div>
+            <div id="trailCanvasWrap" class="trail-canvas-wrap">
+                <canvas id="trailCanvas" class="trail-canvas"></canvas>
+            </div>
+            <div class="trail-zoom-hint">Trail map matches camera frame 1:1 (same pixel space as overlays). W×H shown in JSON panel when running.</div>
+            <div class="legend-wrap">
+                <span class="legend-item"><span class="legend-chip" style="background:#00d4ff;"></span>Eyes Left</span>
+                <span class="legend-item"><span class="legend-chip" style="background:#ffd54a;"></span>Eyes Right</span>
+                <span class="legend-item"><span class="legend-chip" style="background:#c77dff;"></span>Ear Left</span>
+                <span class="legend-item"><span class="legend-chip" style="background:#40e0d0;"></span>Ear Right</span>
+                <span class="legend-item"><span class="legend-chip" style="background:#7cfc4f;"></span>Nose</span>
+                <span class="legend-item"><span class="legend-chip" style="background:#ff5ccf;"></span>Lips</span>
+                <span class="legend-item"><span class="legend-chip" style="background:#00ff9d;"></span>Hand</span>
+                <span class="legend-item"><span class="legend-chip" style="background:#ff8a3d;"></span>Fingers</span>
+            </div>
+        </div>
         <canvas id="captureCanvas" class="d-none"></canvas>
         <div class="hud">
             <span class="hud-badge">Faces: <span id="facesCount">0</span></span>
             <span class="hud-badge">Hands: <span id="handsCount">0</span></span>
             <span class="hud-badge">Eyes: <span id="eyesCount">0</span></span>
+            <span class="hud-badge">Ears: <span id="earsCount">0</span></span>
+            <span class="hud-badge">Lips: <span id="lipsCount">0</span></span>
             <span class="hud-badge">Movement: <span id="movementPct">0</span>%</span>
             <span class="hud-badge">Gesture: <span id="gestureName">-</span></span>
             <span class="hud-badge">Emotion: <span id="stableEmotion">Neutral</span></span>
             <span class="hud-badge">EyeState: <span id="oneEyeStatus">BothOpen</span></span>
             <span class="hud-badge">WS: <span id="wsState">Disconnected</span></span>
         </div>
+        <div class="behavior-panel mt-2 p-3">
+            <div class="monitor-title">Behavior &amp; tracking analysis</div>
+            <div class="d-flex flex-wrap gap-2 mt-2 align-items-center">
+                <span class="bh-item">Activity <strong id="bhActivity">0</strong>/100</span>
+                <span class="bh-item">Scene <strong id="bhScene">—</strong></span>
+                <span class="bh-item">Interaction <strong id="bhInteraction">—</strong></span>
+                <span class="bh-item">Posture <strong id="bhPosture">—</strong></span>
+                <span class="bh-item">Engagement <strong id="bhEngage">0</strong>/100</span>
+                <span class="bh-item">Est. persons <strong id="htPersons">0</strong></span>
+                <span class="bh-item">Primary speed <strong id="htSpeed">0</strong> px/f</span>
+            </div>
+            <div class="mt-2 small text-secondary" id="bhBehaviors">Behaviors: —</div>
+        </div>
     </div>
-    <div class="col-lg-4">
+    <div class="col-12 col-xl-4">
         <div class="card live-shell">
             <div class="card-body">
-                <h5>Live Gesture Tracker</h5>
-                <p class="text-secondary mb-2">UI Port: 5080, API Port: 5078</p>
+                <h5>Session controls</h5>
+                <p class="text-secondary mb-2">UI port 5080 · API 5078</p>
                 <div class="mb-2">
                     <label class="form-label">API Base Url</label>
                     <input id="apiBaseUrl" class="form-control" value="@apiBaseUrl" />
@@ -129,6 +266,15 @@
                 </div>
                 <div class="mb-2">
                     <button id="downloadCsvBtn" class="btn btn-sm btn-outline-info w-100">Download CSV Timeline</button>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Processing FPS</label>
+                    <input id="processFps" type="range" min="1" max="1000" value="20" class="form-range" />
+                    <small><span id="processFpsValue">20</span> fps</small>
+                </div>
+                <div class="mb-2 form-check">
+                    <input class="form-check-input" type="checkbox" id="halfResolution">
+                    <label class="form-check-label" for="halfResolution">Use half image resolution per frame (0.5x)</label>
                 </div>
                 <div class="mb-2">
                     <label class="form-label">Confidence Threshold (%)</label>
@@ -159,6 +305,18 @@
                             <input class="form-check-input" type="checkbox" id="showLabels" checked>
                             <label class="form-check-label" for="showLabels">Labels</label>
                         </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="checkbox" id="showEars" checked>
+                            <label class="form-check-label" for="showEars">Ears</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="checkbox" id="showLips" checked>
+                            <label class="form-check-label" for="showLips">Lips</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="checkbox" id="showNose" checked>
+                            <label class="form-check-label" for="showNose">Nose</label>
+                        </div>
                     </div>
                 </div>
                 <pre id="output" class="small bg-black text-info p-2 border rounded" style="height:280px; overflow:auto;"></pre>
@@ -173,6 +331,8 @@
 (() => {
     const video = document.getElementById('video');
     const overlay = document.getElementById('overlay');
+    const trailCanvas = document.getElementById('trailCanvas');
+    const trailCanvasWrap = document.getElementById('trailCanvasWrap');
     const captureCanvas = document.getElementById('captureCanvas');
     const output = document.getElementById('output');
     const sessionIdInput = document.getElementById('sessionId');
@@ -182,6 +342,8 @@
     const facesCount = document.getElementById('facesCount');
     const handsCount = document.getElementById('handsCount');
     const eyesCount = document.getElementById('eyesCount');
+    const earsCount = document.getElementById('earsCount');
+    const lipsCount = document.getElementById('lipsCount');
     const movementPct = document.getElementById('movementPct');
     const gestureName = document.getElementById('gestureName');
     const stableEmotion = document.getElementById('stableEmotion');
@@ -191,12 +353,18 @@
     const showHands = document.getElementById('showHands');
     const showTrail = document.getElementById('showTrail');
     const showLabels = document.getElementById('showLabels');
+    const showEars = document.getElementById('showEars');
+    const showLips = document.getElementById('showLips');
+    const showNose = document.getElementById('showNose');
     const recordTrailBtn = document.getElementById('recordTrailBtn');
     const snapshotBtn = document.getElementById('snapshotBtn');
     const downloadReportBtn = document.getElementById('downloadReportBtn');
     const downloadCsvBtn = document.getElementById('downloadCsvBtn');
     const trailSecondsInput = document.getElementById('trailSeconds');
     const trailSecondsValue = document.getElementById('trailSecondsValue');
+    const processFpsInput = document.getElementById('processFps');
+    const processFpsValue = document.getElementById('processFpsValue');
+    const halfResolutionInput = document.getElementById('halfResolution');
     let stream = null;
     let frame = 0;
     let inFlight = false;
@@ -209,12 +377,26 @@
     const faceState = new Map();
     const handState = new Map();
     const eyeState = new Map();
+    const lipsState = new Map();
+    const earLeftState = new Map();
+    const earRightState = new Map();
     const sessionStatsHistory = [];
     const gestureCounts = {};
     const sessionStartedAt = new Date().toISOString();
+    const trailSeries = {
+        eyesLeft: [],
+        eyesRight: [],
+        earsLeft: [],
+        earsRight: [],
+        nose: [],
+        lips: [],
+        hand: [],
+        fingers: []
+    };
 
     sessionIdInput.value = `ui-${crypto.randomUUID().slice(0, 8)}`;
     trailSecondsValue.textContent = trailSecondsInput.value;
+    processFpsValue.textContent = processFpsInput.value;
 
     thresholdInput.addEventListener('input', async () => {
         thresholdValue.textContent = `${thresholdInput.value}%`;
@@ -222,6 +404,14 @@
     });
     trailSecondsInput.addEventListener('input', () => {
         trailSecondsValue.textContent = trailSecondsInput.value;
+    });
+    processFpsInput.addEventListener('input', async () => {
+        processFpsValue.textContent = processFpsInput.value;
+        await postSettings();
+    });
+
+    [showFaces, showHands, showTrail, showLabels, showEars, showLips, showNose].forEach(el => {
+        el.addEventListener('change', () => postSettings());
     });
 
     document.getElementById('startBtn').addEventListener('click', start);
@@ -309,7 +499,8 @@
             summary: {
                 totalFramesCaptured: frame,
                 timelinePoints: sessionStatsHistory.length,
-                gesturesDetected: gestureCounts
+                gesturesDetected: gestureCounts,
+                systemName: "Real-Time Human Tracking & Behavior Analysis"
             },
             timeline: sessionStatsHistory
         };
@@ -363,17 +554,21 @@
 
     async function postSettings() {
         const t = Number(thresholdInput.value) / 100;
+        const targetFps = Number(processFpsInput.value || 20);
+        const needFacePipeline = showFaces.checked || showEars.checked || showLips.checked || showNose.checked;
         await fetch(`${baseUrl()}/api/detection/settings/${encodeURIComponent(sid())}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                targetFPS: 20,
+                targetFPS: targetFps,
                 movementThreshold: 25,
                 faceConfidenceThreshold: t,
                 handConfidenceThreshold: t,
-                enableFaceDetection: true,
-                enableEyeDetection: true,
-                enableHandDetection: true,
+                enableFaceDetection: needFacePipeline,
+                enableEyeDetection: showFaces.checked,
+                enableHandDetection: showHands.checked,
+                enableExpressionDetection: showFaces.checked,
+                enableGestureDetection: showHands.checked,
                 enableMovementDetection: true,
                 enableTextDetection: true,
                 cameraStabilityThreshold: 60,
@@ -384,9 +579,9 @@
     }
 
     function runLoop() {
-        const targetIntervalMs = 1000 / 20;
         const tick = async () => {
             if (!stream) return;
+            const targetIntervalMs = 1000 / Math.max(1, Number(processFpsInput.value || 20));
             const now = performance.now();
             if (!inFlight && (now - lastFrameAt) >= targetIntervalMs) {
                 inFlight = true;
@@ -404,15 +599,23 @@
 
     async function processFrame() {
         if (!stream) return;
-        const width = video.videoWidth || 640;
-        const height = video.videoHeight || 360;
+        const sourceWidth = video.videoWidth || 640;
+        const sourceHeight = video.videoHeight || 360;
+        const scale = halfResolutionInput.checked ? 0.5 : 1.0;
+        const width = Math.max(160, Math.round(sourceWidth * scale));
+        const height = Math.max(90, Math.round(sourceHeight * scale));
         captureCanvas.width = width;
         captureCanvas.height = height;
-        overlay.width = width;
-        overlay.height = height;
+        overlay.width = sourceWidth;
+        overlay.height = sourceHeight;
+        trailCanvas.width = sourceWidth;
+        trailCanvas.height = sourceHeight;
+        if (trailCanvasWrap && sourceWidth > 0 && sourceHeight > 0) {
+            trailCanvasWrap.style.aspectRatio = `${sourceWidth} / ${sourceHeight}`;
+        }
 
         const captureCtx = captureCanvas.getContext('2d');
-        captureCtx.drawImage(video, 0, 0, width, height);
+        captureCtx.drawImage(video, 0, 0, sourceWidth, sourceHeight, 0, 0, width, height);
         const imageData = captureCanvas.toDataURL('image/jpeg', 0.6);
 
         const payload = {
@@ -451,14 +654,37 @@
 
         drawOverlay(data);
         updateSessionAnalytics(data);
+        updateBehaviorHud(data);
         output.textContent = JSON.stringify({
             success: data.success,
+            trailFrame: { width: trailCanvas.width, height: trailCanvas.height },
             faces: data.stats?.facesDetected,
             eyes: data.stats?.eyesDetected,
+            ears: data.stats?.earsDetected,
             hands: data.stats?.handsDetected,
             movement: data.stats?.currentMovementLevel,
+            behaviorAnalysis: data.behaviorAnalysis,
+            humanTracking: data.humanTracking,
             calibration: data.calibration
         }, null, 2);
+    }
+
+    function updateBehaviorHud(data) {
+        const ba = data?.behaviorAnalysis || {};
+        const ht = data?.humanTracking || {};
+        const setText = (id, text) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = text;
+        };
+        setText("bhActivity", Number(ba.activityScore ?? 0).toFixed(0));
+        setText("bhScene", ba.sceneDynamics ?? "—");
+        setText("bhInteraction", ba.interactionLevel ?? "—");
+        setText("bhPosture", ba.posture ?? "—");
+        setText("bhEngage", Number(ba.engagementLevel ?? 0).toFixed(0));
+        setText("htPersons", String(ht.estimatedPersonCount ?? 0));
+        setText("htSpeed", Number(ht.primarySubjectSpeed ?? 0).toFixed(1));
+        const behaviors = Array.isArray(ba.detectedBehaviors) ? ba.detectedBehaviors : [];
+        setText("bhBehaviors", behaviors.length ? `Behaviors: ${behaviors.join(", ")}` : "Behaviors: —");
     }
 
     async function connectHub() {
@@ -521,6 +747,30 @@
         }
     }
 
+    /** Nose tip estimate: inter-ocular midpoint + downward offset when 2+ eyes; fallback to face-box proportions. */
+    function computeNosePoint(faceBbox, eyes, nowMs) {
+        if (!faceBbox || faceBbox.width <= 0 || faceBbox.height <= 0) return null;
+        const f = faceBbox;
+        const fh = f.height;
+        const eyeCenters = (eyes || [])
+            .map(e => boxCenter(e.bBox))
+            .filter(c => c && Number.isFinite(c.x) && Number.isFinite(c.y));
+        if (eyeCenters.length >= 2) {
+            const sorted = [...eyeCenters].sort((a, b) => a.x - b.x);
+            const left = sorted[0];
+            const right = sorted[sorted.length - 1];
+            const mx = (left.x + right.x) / 2;
+            const my = (left.y + right.y) / 2;
+            const tipY = my + fh * 0.12;
+            return { x: mx, y: tipY, t: nowMs };
+        }
+        if (eyeCenters.length === 1) {
+            const c = eyeCenters[0];
+            return { x: c.x, y: c.y + fh * 0.16, t: nowMs };
+        }
+        return { x: f.x + f.width * 0.5, y: f.y + fh * 0.50, t: nowMs };
+    }
+
     function drawOverlay(data) {
         const ctx = overlay.getContext('2d');
         ctx.clearRect(0, 0, overlay.width, overlay.height);
@@ -529,12 +779,22 @@
         const faces = stabilizeDetections(detections.faces || [], faceState, "face");
         const hands = stabilizeDetections(detections.hands || [], handState, "hand");
         const eyes = stabilizeDetections(detections.eyes || [], eyeState, "eye");
+        const earsList = detections.ears || [];
+        const earsLeftRaw = earsList.filter(e => (e.side || "").toLowerCase() === "left");
+        const earsRightRaw = earsList.filter(e => (e.side || "").toLowerCase() === "right");
+        const earsLeft = stabilizeDetections(earsLeftRaw, earLeftState, "earL");
+        const earsRight = stabilizeDetections(earsRightRaw, earRightState, "earR");
+        const lipsRaw = (detections.objects || []).filter(o => (o.type || "").toLowerCase() === "lips");
+        const lips = stabilizeDetections(lipsRaw, lipsState, "lips");
         const movement = Number(data?.stats?.currentMovementLevel || 0);
         const monitoringState = data?.monitoringState || {};
+        const nowMs = Date.now();
 
         facesCount.textContent = faces.length;
         handsCount.textContent = hands.length;
         eyesCount.textContent = eyes.length;
+        earsCount.textContent = earsLeft.length + earsRight.length;
+        lipsCount.textContent = lips.length;
         movementPct.textContent = movement.toFixed(1);
 
         const dominantGesture = monitoringState.stableGesture || hands[0]?.gesture?.type || data?.handGestures?.[0]?.type || "-";
@@ -563,11 +823,12 @@
                 drawHandSkeleton(ctx, hand, "#7fffd4");
 
                 const center = boxCenter(hand.bBox);
-                if (isRecordingTrail) {
-                    handTrail.push({ ...center, t: Date.now() });
-                } else {
-                    handTrail.push({ ...center, t: Date.now() });
+                if (showTrail.checked) {
+                    handTrail.push({ ...center, t: nowMs });
                 }
+                trailSeries.hand.push({ x: center.x, y: center.y, t: nowMs });
+                const fingerTips = extractFingerTips(hand);
+                fingerTips.forEach(p => trailSeries.fingers.push({ x: p.x, y: p.y, t: nowMs }));
             });
         }
 
@@ -577,15 +838,62 @@
             handTrail.shift();
         }
 
-        if (showTrail.checked) {
+        if (showTrail.checked && showHands.checked) {
             drawTrail(ctx, handTrail, "#00ff9d");
         }
 
-        if (showFaces.checked || showHands.checked) {
+        if (showFaces.checked) {
             eyes.forEach(eye => {
                 drawBox(ctx, eye.bBox, "#ffd54a", eye.gaze || "Eye");
             });
         }
+
+        if (showEars.checked) {
+            earsLeft.forEach(ear => {
+                drawBox(ctx, ear.bBox, "#c77dff", "Ear L");
+                const c = boxCenter(ear.bBox);
+                trailSeries.earsLeft.push({ x: c.x, y: c.y, t: nowMs });
+            });
+            earsRight.forEach(ear => {
+                drawBox(ctx, ear.bBox, "#40e0d0", "Ear R");
+                const c = boxCenter(ear.bBox);
+                trailSeries.earsRight.push({ x: c.x, y: c.y, t: nowMs });
+            });
+        }
+
+        if (showLips.checked) {
+            lips.forEach(lip => {
+                drawBox(ctx, lip.bBox, "#ff5ccf", "Lips");
+                const c = boxCenter(lip.bBox);
+                trailSeries.lips.push({ x: c.x, y: c.y, t: nowMs });
+            });
+        }
+
+        if (showFaces.checked && eyes.length > 0) {
+            const avgEyeX = eyes.reduce((sum, e) => sum + (e.bBox?.x ?? 0), 0) / eyes.length;
+            eyes.forEach(eye => {
+                const c = boxCenter(eye.bBox);
+                if ((eye.bBox?.x ?? 0) <= avgEyeX) {
+                    trailSeries.eyesLeft.push({ x: c.x, y: c.y, t: nowMs });
+                } else {
+                    trailSeries.eyesRight.push({ x: c.x, y: c.y, t: nowMs });
+                }
+            });
+        }
+
+        if (showNose.checked && faces.length > 0) {
+            const np = computeNosePoint(faces[0].bBox, eyes, nowMs);
+            if (np) {
+                trailSeries.nose.push(np);
+                ctx.strokeStyle = "#7cfc4f";
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(np.x, np.y, 4, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+        }
+
+        drawTrailCanvas();
     }
 
     function drawBox(ctx, b, color, label) {
@@ -615,6 +923,89 @@
         ctx.beginPath();
         ctx.strokeStyle = color;
         ctx.lineWidth = 2;
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length; i++) {
+            ctx.lineTo(points[i].x, points[i].y);
+        }
+        ctx.stroke();
+    }
+
+    function drawTrailCanvas() {
+        const ctx = trailCanvas.getContext('2d');
+        const w = trailCanvas.width;
+        const h = trailCanvas.height;
+        ctx.fillStyle = "#040812";
+        ctx.fillRect(0, 0, w, h);
+        drawTrailGrid(ctx, w, h);
+
+        const trailWindowMs = Number(trailSecondsInput.value || 10) * 1000;
+        const cutoff = Date.now() - trailWindowMs;
+        Object.values(trailSeries).forEach(arr => {
+            while (arr.length && arr[0].t < cutoff) {
+                arr.shift();
+            }
+        });
+
+        if (showFaces.checked) {
+            drawSeries(ctx, trailSeries.eyesLeft, "#00d4ff");
+            drawSeries(ctx, trailSeries.eyesRight, "#ffd54a");
+        }
+        if (showNose.checked) {
+            drawSeries(ctx, trailSeries.nose, "#7cfc4f");
+        }
+        if (showEars.checked) {
+            drawSeries(ctx, trailSeries.earsLeft, "#c77dff");
+            drawSeries(ctx, trailSeries.earsRight, "#40e0d0");
+        }
+        if (showLips.checked) {
+            drawSeries(ctx, trailSeries.lips, "#ff5ccf");
+        }
+        if (showHands.checked) {
+            drawSeries(ctx, trailSeries.hand, "#00ff9d");
+            drawSeries(ctx, trailSeries.fingers, "#ff8a3d");
+        }
+    }
+
+    function drawTrailGrid(ctx, w, h) {
+        ctx.strokeStyle = "rgba(80, 120, 180, 0.22)";
+        ctx.lineWidth = 1;
+        for (let i = 1; i < 10; i++) {
+            const x = (w * i) / 10;
+            const y = (h * i) / 10;
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, h);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(w, y);
+            ctx.stroke();
+        }
+        ctx.strokeStyle = "rgba(120, 160, 220, 0.35)";
+        ctx.beginPath();
+        ctx.moveTo(w / 2, 0);
+        ctx.lineTo(w / 2, h);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, h / 2);
+        ctx.lineTo(w, h / 2);
+        ctx.stroke();
+    }
+
+    function drawSeries(ctx, points, color) {
+        if (!Array.isArray(points) || points.length === 0) return;
+        if (points.length === 1) {
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(points[0].x, points[0].y, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+            return;
+        }
+        ctx.beginPath();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.lineJoin = "round";
+        ctx.lineCap = "round";
         ctx.moveTo(points[0].x, points[0].y);
         for (let i = 1; i < points.length; i++) {
             ctx.lineTo(points[i].x, points[i].y);
@@ -660,8 +1051,8 @@
 
     function stabilizeDetections(list, stateMap, type) {
         const now = performance.now();
-        const keepMs = 420;
-        const alpha = 0.45;
+        const keepMs = 900;
+        const alpha = 0.25;
         const stable = [];
 
         list.forEach((item, idx) => {
@@ -717,6 +1108,23 @@
 
     function boxCenter(b) {
         return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+    }
+
+    function extractFingerTips(hand) {
+        const points = hand?.landmarks || hand?.gesture?.keyPoints || [];
+        if (!Array.isArray(points) || points.length === 0 || !hand?.bBox) {
+            return [];
+        }
+
+        const tipIndexes = [4, 8, 12, 16, 20];
+        return tipIndexes
+            .filter(i => i < points.length)
+            .map(i => points[i])
+            .filter(p => typeof p.x === "number" && typeof p.y === "number")
+            .map(p => ({
+                x: normalizeToPixels(p.x, hand.bBox.x, hand.bBox.width, overlay.width),
+                y: normalizeToPixels(p.y, hand.bBox.y, hand.bBox.height, overlay.height)
+            }));
     }
 })();
 </script>

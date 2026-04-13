@@ -1,8 +1,96 @@
-﻿@{
-    ViewData["Title"] = "Home Page";
+@{
+    ViewData["Title"] = "Home";
+    var api = (ViewData["ApiBaseUrl"]?.ToString() ?? "http://localhost:5078").TrimEnd('/');
 }
 
-<div class="text-center">
-    <h1 class="display-4">Welcome</h1>
-    <p>Learn about <a href="https://learn.microsoft.com/aspnet/core">building Web apps with ASP.NET Core</a>.</p>
+<div class="app-dashboard">
+    <div class="app-dashboard-hero mb-4">
+        <h1 class="h3 mb-2">Our Powerful Modules</h1>
+        <p class="text-secondary mb-0">
+            Choose a feature below. The live camera pipeline runs on the detection page; keep the API running on port <strong>5078</strong>.
+        </p>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-md-6 col-xl-4">
+            <div class="card feature-card h-100 shadow-sm border-0">
+                <div class="card-body d-flex flex-column">
+                    <span class="feature-badge mb-2">Primary</span>
+                    <h2 class="h5 card-title">Real-time human tracking &amp; behavior</h2>
+                    <p class="card-text text-secondary small flex-grow-1">
+                        Camera, overlays, trail analytics, gestures, affect, and behavior scores. Uses the detection API over HTTP or SignalR.
+                    </p>
+                    <a class="btn btn-primary" asp-controller="DetectionClient" asp-action="DetectionView">Open live workspace</a>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6 col-xl-4">
+            <div class="card feature-card h-100 shadow-sm border-0">
+                <div class="card-body d-flex flex-column">
+                    <span class="feature-badge mb-2">Scene</span>
+                    <h2 class="h5 card-title">Humans, animals &amp; objects</h2>
+                    <p class="card-text text-secondary small flex-grow-1">
+                        Separate pipeline: classifies people vs. pets (e.g. cat, dog) and common objects when SSD models are installed; frame-time logs on the API host.
+                    </p>
+                    <a class="btn btn-outline-primary" asp-controller="DetectionClient" asp-action="SceneAnalysis">Open scene analysis</a>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6 col-xl-4">
+            <div class="card feature-card h-100 shadow-sm border-0">
+                <div class="card-body d-flex flex-column">
+                    <span class="feature-badge feature-badge-muted mb-2">Service</span>
+                    <h2 class="h5 card-title">Detection API status</h2>
+                    <p class="card-text text-secondary small flex-grow-1">
+                        Quick health check JSON (opens in a new tab). Start the API with the launcher script or <code>dotnet run</code> in the ImgToText project.
+                    </p>
+                    <a class="btn btn-outline-secondary" href="@api/api/detection/health" target="_blank" rel="noopener">Open health endpoint</a>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6 col-xl-4">
+            <div class="card feature-card h-100 shadow-sm border-0">
+                <div class="card-body d-flex flex-column">
+                    <span class="feature-badge feature-badge-muted mb-2">Info</span>
+                    <h2 class="h5 card-title">Privacy</h2>
+                    <p class="card-text text-secondary small flex-grow-1">
+                        Application privacy placeholder page.
+                    </p>
+                    <a class="btn btn-outline-secondary" asp-controller="Home" asp-action="Privacy">Open privacy</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card feature-card shadow-sm border-0 mt-4">
+        <div class="card-body">
+            <h2 class="h5 mb-3">Quick links (with context)</h2>
+            <ul class="mb-0">
+                <li class="mb-2">
+                    <a href="http://localhost:5080/" target="_blank" rel="noopener">http://localhost:5080/</a>
+                    <span class="text-secondary"> - Main menu / landing page</span>
+                </li>
+                <li class="mb-2">
+                    <a href="http://localhost:5080/DetectionView" target="_blank" rel="noopener">http://localhost:5080/DetectionView</a>
+                    <span class="text-secondary"> - Live tracking and behavior workspace</span>
+                </li>
+                <li class="mb-2">
+                    <a href="http://localhost:5080/DetectionView/Index" target="_blank" rel="noopener">http://localhost:5080/DetectionView/Index</a>
+                    <span class="text-secondary"> - Same live tracking page (alias route)</span>
+                </li>
+                <li class="mb-2">
+                    <a href="http://localhost:5080/DetectionClient/SceneAnalysis" target="_blank" rel="noopener">http://localhost:5080/DetectionClient/SceneAnalysis</a>
+                    <span class="text-secondary"> - Humans / animals / objects scene analysis</span>
+                </li>
+                <li class="mb-2">
+                    <a href="http://localhost:5080/Home/Privacy" target="_blank" rel="noopener">http://localhost:5080/Home/Privacy</a>
+                    <span class="text-secondary"> - Privacy page</span>
+                </li>
+                <li>
+                    <a href="@api/api/detection/health" target="_blank" rel="noopener">@api/api/detection/health</a>
+                    <span class="text-secondary"> - Detection API health endpoint</span>
+                </li>
+            </ul>
+        </div>
+    </div>
 </div>

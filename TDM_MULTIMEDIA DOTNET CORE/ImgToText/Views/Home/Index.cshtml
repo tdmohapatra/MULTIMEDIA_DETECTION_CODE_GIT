@@ -1,4 +1,4 @@
-﻿    @* @{
+    @* @{
         Layout = null;
     }
  *@
@@ -448,6 +448,70 @@
             flex-wrap: wrap;
         }
 
+        .intro-panel {
+            margin-top: 18px;
+            padding: 14px 16px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.07);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            text-align: left;
+        }
+
+        .intro-panel h4 {
+            font-size: 1rem;
+            margin: 0 0 8px 0;
+            color: #fff;
+        }
+
+        .intro-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-top: 10px;
+        }
+
+        .intro-status {
+            font-size: 0.88rem;
+            color: var(--text-muted);
+            margin-left: 4px;
+        }
+
+        .hero-quick-links {
+            margin-top: 22px;
+            padding: 16px 18px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            text-align: left;
+        }
+
+        .hero-quick-links h4 {
+            font-size: 1rem;
+            margin-bottom: 10px;
+            color: #fff;
+        }
+
+        .hero-quick-links ul {
+            margin: 0;
+            padding-left: 18px;
+        }
+
+        .hero-quick-links li {
+            margin-bottom: 6px;
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+
+        .hero-quick-links a {
+            color: var(--primary-light);
+            text-decoration: none;
+        }
+
+        .hero-quick-links a:hover {
+            text-decoration: underline;
+        }
+
         .btn-secondary {
             background: rgba(255, 255, 255, 0.1);
             color: white;
@@ -641,11 +705,15 @@
 
         .module-body {
             padding: 25px;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
         }
 
         .module-features {
             list-style: none;
             margin-bottom: 25px;
+            flex-grow: 1;
         }
 
             .module-features li {
@@ -844,6 +912,57 @@
                 opacity: 1;
                 transform: translateY(0);
             }
+
+        /* Thriller cinematic menu entry */
+        .menu-entry {
+            opacity: 0;
+            transform: translateY(24px) scale(0.98);
+            filter: blur(8px);
+            transition: opacity 0.7s ease, transform 0.7s ease, filter 0.7s ease, box-shadow 0.35s ease;
+            will-change: transform, opacity, filter;
+        }
+
+        .menu-entry.visible {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+            filter: blur(0);
+        }
+
+        .menu-entry.fx-a {
+            transition-timing-function: cubic-bezier(.16,.84,.44,1);
+        }
+
+        .menu-entry.fx-b {
+            transition-timing-function: cubic-bezier(.2,.95,.38,1.02);
+        }
+
+        .menu-entry.fx-c {
+            transition-timing-function: cubic-bezier(.12,.88,.34,1);
+        }
+
+        .module-card.menu-entry.visible:hover,
+        .feature-card.menu-entry.visible:hover {
+            box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 16px 40px rgba(124, 58, 237, 0.25);
+        }
+
+        .sound-hint {
+            margin-top: 10px;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            opacity: 0.8;
+        }
+
+        @@media (prefers-reduced-motion: reduce) {
+            .menu-entry,
+            .menu-entry.visible,
+            .fade-in,
+            .fade-in.visible {
+                transition: none !important;
+                transform: none !important;
+                opacity: 1 !important;
+                filter: none !important;
+            }
+        }
     </style>
 </head>
 <body class="theme-default">
@@ -959,14 +1078,39 @@
                 <h1 class="fade-in">Transform Your Digital Experience</h1>
                 <p class="fade-in">STAR MULTIMEDIA offers cutting-edge solutions for image processing, text extraction, and multimedia management with AI-powered technology.</p>
                 <div class="hero-buttons">
-                    <a href="/Home/ImageToTextBasic" class="cta-button fade-in">
+                    <a href="/Home/ImageToTextBasic" class="cta-button fade-in menu-entry fx-a">
                         <i class="fas fa-camera"></i> Try Image to Text
                     </a>
-                    <a href="#features" class="btn-secondary fade-in">
+                    <a href="#features" class="btn-secondary fade-in menu-entry fx-b">
                         <i class="fas fa-info-circle"></i> Learn More
                     </a>
                 </div>
-         
+                <div class="intro-panel fade-in menu-entry fx-a">
+                    <h4>Immersive intro</h4>
+                    <p class="mb-0">Play a short voice introduction with ambient thriller background before exploring modules.</p>
+                    <div class="intro-actions">
+                        <button id="introPlayBtn" class="cta-button" type="button">
+                            <i class="fas fa-volume-up"></i> Play Intro
+                        </button>
+                        <button id="introStopBtn" class="btn-secondary" type="button">
+                            <i class="fas fa-stop"></i> Stop
+                        </button>
+                        <span class="intro-status" id="introStatus">Idle</span>
+                    </div>
+                </div>
+                <div class="hero-quick-links fade-in menu-entry fx-c">
+                    <h4>Quick access routes</h4>
+                    <ul>
+                        <li><a href="http://localhost:5080/" target="_blank" rel="noopener noreferrer">http://localhost:5080/</a> - UI main menu</li>
+                        <li><a href="http://localhost:5080/DetectionView" target="_blank" rel="noopener noreferrer">http://localhost:5080/DetectionView</a> - Live tracking & behavior</li>
+                        <li><a href="http://localhost:5080/DetectionView/Index" target="_blank" rel="noopener noreferrer">http://localhost:5080/DetectionView/Index</a> - Live page alias</li>
+                        <li><a href="http://localhost:5080/DetectionClient/SceneAnalysis" target="_blank" rel="noopener noreferrer">http://localhost:5080/DetectionClient/SceneAnalysis</a> - Human/animal/object scene analysis</li>
+                        <li><a href="http://localhost:5080/Home/Privacy" target="_blank" rel="noopener noreferrer">http://localhost:5080/Home/Privacy</a> - Privacy</li>
+                        <li><a href="http://localhost:5078/api/detection/health" target="_blank" rel="noopener noreferrer">http://localhost:5078/api/detection/health</a> - API health status</li>
+                    </ul>
+                    <div class="sound-hint">Tip: click anywhere once to enable thriller sound FX.</div>
+                </div>
+
             </div>
         </div>
     </section>
@@ -1007,7 +1151,7 @@
             </div>
 
             <div class="features-grid">
-                <div class="feature-card fade-in">
+                <div class="feature-card fade-in menu-entry fx-a">
                     <div class="feature-icon">
                         <i class="fas fa-robot"></i>
                     </div>
@@ -1018,7 +1162,7 @@
                     </a>
                 </div>
 
-                <div class="feature-card fade-in">
+                <div class="feature-card fade-in menu-entry fx-b">
                     <div class="feature-icon">
                         <i class="fas fa-bolt"></i>
                     </div>
@@ -1029,7 +1173,7 @@
                     </a>
                 </div>
 
-                <div class="feature-card fade-in">
+                <div class="feature-card fade-in menu-entry fx-c">
                     <div class="feature-icon">
                         <i class="fas fa-shield-alt"></i>
                     </div>
@@ -1040,7 +1184,7 @@
                     </a>
                 </div>
 
-                <div class="feature-card fade-in">
+                <div class="feature-card fade-in menu-entry fx-a">
                     <div class="feature-icon">
                         <i class="fas fa-language"></i>
                     </div>
@@ -1051,7 +1195,7 @@
                     </a>
                 </div>
 
-                <div class="feature-card fade-in">
+                <div class="feature-card fade-in menu-entry fx-b">
                     <div class="feature-icon">
                         <i class="fas fa-mobile-alt"></i>
                     </div>
@@ -1062,7 +1206,7 @@
                     </a>
                 </div>
 
-                <div class="feature-card fade-in">
+                <div class="feature-card fade-in menu-entry fx-c">
                     <div class="feature-icon">
                         <i class="fas fa-cloud-download-alt"></i>
                     </div>
@@ -1085,7 +1229,7 @@
             </div>
 
             <div class="modules-grid">
-                <div class="module-card fade-in">
+                <div class="module-card fade-in menu-entry fx-a" data-module-sfx="ocr">
                     <div class="module-header">
                         <h3><i class="fas fa-camera"></i> Image to Text Converter</h3>
                     </div>
@@ -1104,7 +1248,7 @@
                     </div>
                 </div>
 
-                <div class="module-card fade-in">
+                <div class="module-card fade-in menu-entry fx-b" data-module-sfx="document">
                     <div class="module-header">
                         <h3><i class="fas fa-file-image"></i> Document Processing</h3>
                     </div>
@@ -1123,7 +1267,7 @@
                     </div>
                 </div>
 
-                <div class="module-card fade-in">
+                <div class="module-card fade-in menu-entry fx-c" data-module-sfx="scene">
                     <div class="module-header">
                         <h3><i class="fas fa-video"></i> Video Content Analysis</h3>
                     </div>
@@ -1142,7 +1286,7 @@
                     </div>
                 </div>
 
-                <div class="module-card fade-in">
+                <div class="module-card fade-in menu-entry fx-a" data-module-sfx="analytics">
                     <div class="module-header">
                         <h3><i class="fas fa-chart-bar"></i> Data Visualization</h3>
                     </div>
@@ -1161,7 +1305,7 @@
                     </div>
                 </div>
 
-                <div class="module-card fade-in">
+                <div class="module-card fade-in menu-entry fx-b" data-module-sfx="cloud">
                     <div class="module-header">
                         <h3><i class="fas fa-cloud"></i> Cloud Integration</h3>
                     </div>
@@ -1180,7 +1324,7 @@
                     </div>
                 </div>
 
-                <div class="module-card fade-in">
+                <div class="module-card fade-in menu-entry fx-c" data-module-sfx="advanced">
                     <div class="module-header">
                         <h3><i class="fas fa-cogs"></i> Advanced Processing</h3>
                     </div>
@@ -1419,10 +1563,199 @@
             }
         });
 
+        // Thriller sound FX (WebAudio, no external assets)
+        let audioCtx = null;
+        let soundEnabled = false;
+        let lastSfxAt = 0;
+        let ambienceNodes = null;
+
+        const introText = "Welcome to STAR Multimedia. Explore powerful modules for image to text, real time tracking and behavior analytics, and scene intelligence with human, animal, and object detection. Use the quick access links to launch each experience instantly.";
+
+        function ensureAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            soundEnabled = true;
+        }
+
+        function playThrillSfx(kind = 'hover', profile = 'default') {
+            if (!soundEnabled || !audioCtx) return;
+            const now = performance.now();
+            if (now - lastSfxAt < 90) return;
+            lastSfxAt = now;
+
+            const t0 = audioCtx.currentTime;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            const filter = audioCtx.createBiquadFilter();
+
+            const soundProfiles = {
+                default: { base: 260, click: 180, q: 7, typeHover: 'triangle', typeClick: 'sawtooth', band: 520 },
+                ocr: { base: 320, click: 210, q: 8, typeHover: 'triangle', typeClick: 'triangle', band: 650 },
+                scene: { base: 220, click: 150, q: 6, typeHover: 'sawtooth', typeClick: 'sawtooth', band: 460 },
+                analytics: { base: 420, click: 300, q: 9, typeHover: 'square', typeClick: 'triangle', band: 900 },
+                cloud: { base: 360, click: 260, q: 5, typeHover: 'sine', typeClick: 'triangle', band: 740 },
+                document: { base: 280, click: 190, q: 7, typeHover: 'triangle', typeClick: 'square', band: 600 },
+                advanced: { base: 250, click: 170, q: 8, typeHover: 'sawtooth', typeClick: 'triangle', band: 560 }
+            };
+            const p = soundProfiles[profile] || soundProfiles.default;
+
+            filter.type = 'bandpass';
+            filter.frequency.setValueAtTime(kind === 'click' ? p.band + 180 : p.band, t0);
+            filter.Q.setValueAtTime(p.q, t0);
+
+            osc.type = kind === 'click' ? p.typeClick : p.typeHover;
+            osc.frequency.setValueAtTime(kind === 'click' ? p.click : p.base, t0);
+            osc.frequency.exponentialRampToValueAtTime(kind === 'click' ? p.click * 0.45 : p.base * 0.46, t0 + (kind === 'click' ? 0.15 : 0.1));
+
+            gain.gain.setValueAtTime(0.0001, t0);
+            gain.gain.exponentialRampToValueAtTime(kind === 'click' ? 0.035 : 0.02, t0 + 0.015);
+            gain.gain.exponentialRampToValueAtTime(0.0001, t0 + (kind === 'click' ? 0.18 : 0.12));
+
+            osc.connect(filter);
+            filter.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            osc.start(t0);
+            osc.stop(t0 + (kind === 'click' ? 0.2 : 0.14));
+        }
+
+        function startAmbience() {
+            ensureAudio();
+            if (!audioCtx || ambienceNodes) return;
+
+            const t0 = audioCtx.currentTime;
+            const drone = audioCtx.createOscillator();
+            const pulse = audioCtx.createOscillator();
+            const lfo = audioCtx.createOscillator();
+            const lfoGain = audioCtx.createGain();
+            const master = audioCtx.createGain();
+            const filter = audioCtx.createBiquadFilter();
+
+            drone.type = 'sawtooth';
+            drone.frequency.setValueAtTime(56, t0);
+            pulse.type = 'triangle';
+            pulse.frequency.setValueAtTime(112, t0);
+
+            lfo.type = 'sine';
+            lfo.frequency.setValueAtTime(0.2, t0);
+            lfoGain.gain.setValueAtTime(25, t0);
+
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(620, t0);
+            filter.Q.setValueAtTime(2.5, t0);
+
+            master.gain.setValueAtTime(0.0001, t0);
+            master.gain.exponentialRampToValueAtTime(0.03, t0 + 0.35);
+
+            lfo.connect(lfoGain);
+            lfoGain.connect(filter.frequency);
+            drone.connect(filter);
+            pulse.connect(filter);
+            filter.connect(master);
+            master.connect(audioCtx.destination);
+
+            drone.start(t0);
+            pulse.start(t0);
+            lfo.start(t0);
+
+            ambienceNodes = { drone, pulse, lfo, master };
+        }
+
+        function stopAmbience() {
+            if (!audioCtx || !ambienceNodes) return;
+            const t0 = audioCtx.currentTime;
+            ambienceNodes.master.gain.cancelScheduledValues(t0);
+            ambienceNodes.master.gain.setValueAtTime(ambienceNodes.master.gain.value || 0.02, t0);
+            ambienceNodes.master.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.2);
+            setTimeout(() => {
+                try {
+                    ambienceNodes.drone.stop();
+                    ambienceNodes.pulse.stop();
+                    ambienceNodes.lfo.stop();
+                } catch {}
+                ambienceNodes = null;
+            }, 240);
+        }
+
+        function playIntroNarration() {
+            const status = document.getElementById('introStatus');
+            if (!('speechSynthesis' in window)) {
+                status.textContent = 'Speech not supported in this browser';
+                return;
+            }
+            ensureAudio();
+            startAmbience();
+            window.speechSynthesis.cancel();
+
+            const utter = new SpeechSynthesisUtterance(introText);
+            utter.rate = 0.94;
+            utter.pitch = 0.88;
+            utter.volume = 0.95;
+            utter.onstart = () => { status.textContent = 'Intro playing...'; };
+            utter.onend = () => {
+                status.textContent = 'Intro complete';
+                stopAmbience();
+            };
+            utter.onerror = () => {
+                status.textContent = 'Voice error';
+                stopAmbience();
+            };
+            window.speechSynthesis.speak(utter);
+        }
+
+        function stopIntroNarration() {
+            const status = document.getElementById('introStatus');
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+            }
+            stopAmbience();
+            status.textContent = 'Stopped';
+        }
+
+        function initMenuEntryAnimations() {
+            const items = document.querySelectorAll('.menu-entry');
+            items.forEach((el, i) => {
+                el.style.transitionDelay = `${Math.min(0.06 * i, 0.8)}s`;
+            });
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('visible');
+                        observer.unobserve(entry.target);
+                    }
+                });
+            }, { threshold: 0.15 });
+
+            items.forEach(el => observer.observe(el));
+        }
+
+        function initMenuSoundFx() {
+            const interactive = document.querySelectorAll('.cta-button, .btn-secondary, .feature-link, .module-card, .hero-quick-links a, .footer-links a');
+            interactive.forEach(el => {
+                const profile = el.dataset.moduleSfx || el.closest('[data-module-sfx]')?.dataset.moduleSfx || 'default';
+                el.addEventListener('mouseenter', () => playThrillSfx('hover', profile));
+                el.addEventListener('click', () => playThrillSfx('click', profile));
+            });
+
+            // Browser gesture unlock
+            window.addEventListener('pointerdown', ensureAudio, { once: true });
+            window.addEventListener('keydown', ensureAudio, { once: true });
+        }
+
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
             createParticles();
             handleScrollAnimations();
+            initMenuEntryAnimations();
+            initMenuSoundFx();
+            const introPlayBtn = document.getElementById('introPlayBtn');
+            const introStopBtn = document.getElementById('introStopBtn');
+            if (introPlayBtn) introPlayBtn.addEventListener('click', playIntroNarration);
+            if (introStopBtn) introStopBtn.addEventListener('click', stopIntroNarration);
         });
     </script>
 </body>
