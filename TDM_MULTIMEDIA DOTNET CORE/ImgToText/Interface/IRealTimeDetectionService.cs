@@ -11,6 +11,7 @@ namespace STAR_MUTIMEDIA.Services
 
         // Basic session management
         DetectionStats GetSessionStats(string sessionId);
+        DetectionSettings GetSessionSettings(string sessionId);
         SessionAnalytics GetSessionAnalytics(string sessionId);
         void UpdateSessionSettings(string sessionId, DetectionSettings settings);
         void InitializeSession(string sessionId);
@@ -27,5 +28,9 @@ namespace STAR_MUTIMEDIA.Services
         // Performance control
         void SetTargetFPS(string sessionId, double targetFPS);
         void EnableMonitoringOption(string sessionId, string optionName, bool enable);
+        CalibrationResult StartCalibration(string sessionId, int frameCount);
+        void SaveSessionProfile(string sessionId, string profileName);
+        bool LoadSessionProfile(string sessionId, string profileName);
+        List<string> GetSessionProfiles(string sessionId);
     }
 }

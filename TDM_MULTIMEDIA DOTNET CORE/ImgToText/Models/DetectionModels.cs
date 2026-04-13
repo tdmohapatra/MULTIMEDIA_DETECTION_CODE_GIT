@@ -161,6 +161,11 @@ namespace STAR_MUTIMEDIA.Models
         public List<DetectionNotification> Notifications { get; set; } = new List<DetectionNotification>();
         public List<SystemLog> Logs { get; set; } = new List<SystemLog>();
         public DetectionData Detections { get; set; } = new DetectionData();
+        public List<FaceExpression> FaceExpressions { get; set; } = new List<FaceExpression>();
+        public List<HandGesture> HandGestures { get; set; } = new List<HandGesture>();
+        public List<EyeMovement> EyeMovements { get; set; } = new List<EyeMovement>();
+        public VitalMetrics VitalMetrics { get; set; } = new VitalMetrics();
+        public CalibrationResult Calibration { get; set; }
         public string CapturedText { get; set; }
         public bool Success { get; set; } = true;
         public string ErrorMessage { get; set; }
@@ -434,14 +439,25 @@ namespace STAR_MUTIMEDIA.Models
         public DateTime CalculatedAt { get; set; } = DateTime.UtcNow;
     }
 
-    // Request/Response DTOs for API
-    public class ProcessFrameRequest
+    public class CalibrationResult
     {
-        public string ImageData { get; set; }
         public string SessionId { get; set; }
-        public string ProcessingMode { get; set; } = "standard";
-        public Dictionary<string, object> Options { get; set; } = new Dictionary<string, object>();
+        public bool IsCalibrating { get; set; }
+        public int FramesRemaining { get; set; }
+        public int TotalFrames { get; set; }
+        public double BaselineMovement { get; set; }
+        public DateTime StartedAt { get; set; } = DateTime.UtcNow;
+        public string Message { get; set; }
     }
+
+    // Request/Response DTOs for API
+    //public class ProcessFrameRequest
+    //{
+    //    public string ImageData { get; set; }
+    //    public string SessionId { get; set; }
+    //    public string ProcessingMode { get; set; } = "standard";
+    //    public Dictionary<string, object> Options { get; set; } = new Dictionary<string, object>();
+    //}
 
     public class UpdateSettingsRequest
     {
@@ -499,6 +515,13 @@ namespace STAR_MUTIMEDIA.Models
         public DateTime LastCleanup { get; set; } = DateTime.UtcNow;
         public int FramesSinceLastCleanup { get; set; } = 0;
         public bool IsActive { get; set; } = true;
+        public bool ProfileLoaded { get; set; } = false;
+        public bool IsCalibrating { get; set; } = true;
+        public int CalibrationFramesTotal { get; set; } = 45;
+        public int CalibrationFramesRemaining { get; set; } = 45;
+        public double BaselineMovementSum { get; set; } = 0.0;
+        public double BaselineMovement { get; set; } = 5.0;
+        public DateTime CalibrationStartedAt { get; set; } = DateTime.UtcNow;
 
         public void UpdateFrameTime()
         {

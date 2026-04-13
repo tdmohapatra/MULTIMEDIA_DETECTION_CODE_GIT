@@ -34,7 +34,7 @@ namespace ImgToText.Services
             var engPath = Path.Combine(_tessDataPath, "eng.traineddata");
             if (!File.Exists(engPath))
             {
-                throw new FileNotFoundException($"Required language file not found: {engPath}");
+                System.Diagnostics.Debug.WriteLine($"Warning: Required language file not found at startup: {engPath}");
             }
         }
 

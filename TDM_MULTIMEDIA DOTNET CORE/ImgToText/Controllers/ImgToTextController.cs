@@ -13,6 +13,11 @@ namespace ImgToTextApp.Controllers
     {
         private readonly IImageTextService _imageTextService;
         private readonly string uploadsPath;
+        private const long MaxUploadSizeBytes = 10 * 1024 * 1024; // 10 MB
+        private static readonly HashSet<string> AllowedImageExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".jpg", ".jpeg", ".png", ".bmp", ".gif"
+        };
 
         public ImgToTextController(IImageTextService imageTextService)
         {
@@ -68,7 +73,14 @@ namespace ImgToTextApp.Controllers
                 // Handle uploaded file
                 else if (file != null && file.Length > 0)
                 {
-                    var fileName = $"{Path.GetFileNameWithoutExtension(file.FileName)}_{DateTime.Now:yyyyMMdd_HHmmss}{Path.GetExtension(file.FileName)}";
+                    if (!ValidateIncomingFile(file, out var validationError))
+                    {
+                        return BadRequest(new { error = validationError });
+                    }
+
+                    var safeBaseName = SanitizeFileName(Path.GetFileNameWithoutExtension(file.FileName));
+                    var fileExtension = Path.GetExtension(file.FileName).ToLowerInvariant();
+                    var fileName = $"{safeBaseName}_{DateTime.Now:yyyyMMdd_HHmmss}{fileExtension}";
                     var filePath = Path.Combine(uploadsPath, fileName);
 
                     // Save the uploaded file
@@ -101,7 +113,7 @@ namespace ImgToTextApp.Controllers
                 }
                 else
                 {
-                    return BadRequest(new { error = "No image data provided" });
+                    return ApiError("No image data provided", 400);
                 }
 
                 return Json(new
@@ -178,8 +190,16 @@ namespace ImgToTextApp.Controllers
                 }
                 else if (file != null && file.Length > 0)
                 {
+                    if (!ValidateIncomingFile(file, out var validationError))
+                    {
+                        return BadRequest(new { success = false, error = validationError });
+                    }
+
                     // Handle uploaded file
-                    var filePath = Path.Combine(uploadsPath, file.FileName);
+                    var safeBaseName = SanitizeFileName(Path.GetFileNameWithoutExtension(file.FileName));
+                    var fileExtension = Path.GetExtension(file.FileName).ToLowerInvariant();
+                    var safeFileName = $"{safeBaseName}_{DateTime.Now:yyyyMMdd_HHmmss}{fileExtension}";
+                    var filePath = Path.Combine(uploadsPath, safeFileName);
                     await using (var stream = new FileStream(filePath, FileMode.Create))
                     {
                         await file.CopyToAsync(stream);
@@ -210,7 +230,7 @@ namespace ImgToTextApp.Controllers
                 }
                 else
                 {
-                    return BadRequest(new { success = false, error = "No image data provided" });
+                    return ApiError("No image data provided", 400);
                 }
 
                 return Json(new
@@ -340,13 +360,16 @@ namespace ImgToTextApp.Controllers
             {
                 if (string.IsNullOrEmpty(request?.ImagePath))
                 {
-                    return BadRequest(new { success = false, error = "Image path is required" });
+                    return ApiError("Image path is required", 400);
                 }
 
-                var fullPath = Path.Combine(uploadsPath, request.ImagePath);
+                if (!TryBuildSafeUploadPath(request.ImagePath, out var fullPath))
+                {
+                    return ApiError("Invalid image path", 400);
+                }
                 if (!System.IO.File.Exists(fullPath))
                 {
-                    return BadRequest(new { success = false, error = "Image file not found" });
+                    return ApiError("Image file not found", 404);
                 }
 
                 var comparisonResult = _imageTextService.CompareOcrResults(fullPath);
@@ -378,13 +401,16 @@ namespace ImgToTextApp.Controllers
             {
                 if (string.IsNullOrEmpty(request?.ImagePath))
                 {
-                    return BadRequest(new { success = false, error = "Image path is required" });
+                    return ApiError("Image path is required", 400);
                 }
 
-                var fullPath = Path.Combine(uploadsPath, request.ImagePath);
+                if (!TryBuildSafeUploadPath(request.ImagePath, out var fullPath))
+                {
+                    return ApiError("Invalid image path", 400);
+                }
                 if (!System.IO.File.Exists(fullPath))
                 {
-                    return BadRequest(new { success = false, error = "Image file not found" });
+                    return ApiError("Image file not found", 404);
                 }
 
                 string text;
@@ -450,7 +476,10 @@ namespace ImgToTextApp.Controllers
                     return BadRequest(new { success = false, error = "Image path is required" });
                 }
 
-                var fullPath = Path.Combine(uploadsPath, request.ImagePath);
+                if (!TryBuildSafeUploadPath(request.ImagePath, out var fullPath))
+                {
+                    return BadRequest(new { success = false, error = "Invalid image path" });
+                }
                 if (!System.IO.File.Exists(fullPath))
                 {
                     return BadRequest(new { success = false, error = "Image file not found" });
@@ -484,13 +513,16 @@ namespace ImgToTextApp.Controllers
             {
                 if (string.IsNullOrEmpty(fileName))
                 {
-                    return BadRequest("File name is required");
+                    return ApiError("File name is required", 400);
                 }
 
-                var filePath = Path.Combine(uploadsPath, fileName);
+                if (!TryBuildSafeUploadPath(fileName, out var filePath))
+                {
+                    return ApiError("Invalid file name", 400);
+                }
                 if (!System.IO.File.Exists(filePath))
                 {
-                    return NotFound("File not found");
+                    return ApiError("File not found", 404);
                 }
 
                 var fileBytes = System.IO.File.ReadAllBytes(filePath);
@@ -500,7 +532,7 @@ namespace ImgToTextApp.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"Error downloading file: {ex.Message}");
+                return ApiError($"Error downloading file: {ex.Message}", 500);
             }
         }
 
@@ -511,13 +543,16 @@ namespace ImgToTextApp.Controllers
             {
                 if (string.IsNullOrEmpty(request?.ImagePath))
                 {
-                    return BadRequest(new { success = false, error = "Image path is required" });
+                    return ApiError("Image path is required", 400);
                 }
 
-                var fullPath = Path.Combine(uploadsPath, request.ImagePath);
+                if (!TryBuildSafeUploadPath(request.ImagePath, out var fullPath))
+                {
+                    return ApiError("Invalid image path", 400);
+                }
                 if (!System.IO.File.Exists(fullPath))
                 {
-                    return BadRequest(new { success = false, error = "Image file not found" });
+                    return ApiError("Image file not found", 404);
                 }
 
                 var text = _imageTextService.ExtractTextWithLanguage(fullPath, request.Language);
@@ -544,14 +579,17 @@ namespace ImgToTextApp.Controllers
             {
                 if (request?.FileNames == null || !request.FileNames.Any())
                 {
-                    return BadRequest(new { success = false, error = "File names are required" });
+                    return ApiError("File names are required", 400);
                 }
 
                 var results = new List<BulkProcessResult>();
 
                 foreach (var fileName in request.FileNames)
                 {
-                    var fullPath = Path.Combine(uploadsPath, fileName);
+                    if (!TryBuildSafeUploadPath(fileName, out var fullPath))
+                    {
+                        continue;
+                    }
                     if (System.IO.File.Exists(fullPath))
                     {
                         var confidenceResult = _imageTextService.ExtractTextWithConfidence(fullPath);
@@ -617,6 +655,75 @@ namespace ImgToTextApp.Controllers
                       .Replace(")", "\\)")
                       .Replace("\r", "")
                       .Replace("\n", "\\Tj\nT* (");
+        }
+
+        private bool ValidateIncomingFile(IFormFile file, out string error)
+        {
+            error = string.Empty;
+            if (file == null || file.Length == 0)
+            {
+                error = "File is empty";
+                return false;
+            }
+
+            if (file.Length > MaxUploadSizeBytes)
+            {
+                error = $"File size exceeds {MaxUploadSizeBytes / (1024 * 1024)}MB limit";
+                return false;
+            }
+
+            if (!AllowedImageExtensions.Contains(Path.GetExtension(file.FileName)))
+            {
+                error = "Unsupported file type";
+                return false;
+            }
+
+            return true;
+        }
+
+        private bool TryBuildSafeUploadPath(string inputFileName, out string fullPath)
+        {
+            fullPath = string.Empty;
+            if (string.IsNullOrWhiteSpace(inputFileName))
+            {
+                return false;
+            }
+
+            var safeName = Path.GetFileName(inputFileName);
+            if (!string.Equals(safeName, inputFileName, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            var candidate = Path.GetFullPath(Path.Combine(uploadsPath, safeName));
+            var uploadsRoot = Path.GetFullPath(uploadsPath);
+            if (!candidate.StartsWith(uploadsRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            fullPath = candidate;
+            return true;
+        }
+
+        private string SanitizeFileName(string fileNameWithoutExtension)
+        {
+            if (string.IsNullOrWhiteSpace(fileNameWithoutExtension))
+            {
+                return "upload";
+            }
+
+            var sanitized = Regex.Replace(fileNameWithoutExtension, @"[^a-zA-Z0-9_\-]", "_");
+            return sanitized.Length > 80 ? sanitized[..80] : sanitized;
+        }
+
+        private ObjectResult ApiError(string message, int statusCode)
+        {
+            return StatusCode(statusCode, new
+            {
+                success = false,
+                error = message
+            });
         }
     }
 

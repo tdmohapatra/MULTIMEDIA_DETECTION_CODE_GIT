@@ -10,6 +10,7 @@
 	<ItemGroup>
 		<PackageReference Include="DocX" Version="5.0.0" />
 		<PackageReference Include="Mediapipe.Net" Version="0.9.2" />
+		<PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.5" />
 		<PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.23.0" />
 		<PackageReference Include="OpenCvSharp4" Version="4.11.0.20250507" />
 		<PackageReference Include="OpenCvSharp4.Extensions" Version="4.11.0.20250507" />

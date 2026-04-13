@@ -1,0 +1,66 @@
+﻿@*  @{
+    layout = null;
+} *@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <style>
+        .slpace {
+            margin-left: 100px;
+            color: white;
+            font-weight: 700;
+        }
+    </style>
+</head>
+<body>
+    <div class="m-10 bg-success">
+        <table border="1" width="400">
+            <thead style="background-color:palegreen;">
+                <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Email</th>
+                </tr>
+            </thead>
+
+            <tbody id="userTableBody"></tbody>
+        </table>
+    </div>
+</body>
+</html>
+
+<script>
+    getAPIData();
+
+    async function getAPIData() {
+        try {
+            const response = await fetch('https://gorest.co.in/public/v2/users');
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! Status: ${response.status}`);
+            }
+
+            const users = await response.json();
+            populateTable(users);
+
+        } catch (error) {
+            console.error('API Error:', error.message);
+        }
+    }
+
+    function populateTable(users) {
+        const tbody = document.getElementById("userTableBody");
+        tbody.innerHTML = "";
+
+        users.forEach(u => {
+            const row = `
+                <tr>
+                    <td>${u.id}</td>
+                    <td>${u.name}</td>
+                    <td>${u.email ?? "N/A"}</td>
+                </tr>
+            `;
+            tbody.innerHTML += row;
+        });
+    }
+</script>

@@ -361,3 +361,8 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# App runtime upload artifacts
+TDM_MULTIMEDIA DOTNET CORE/ImgToText/wwwroot/uploads/camera_capture_*.png
+TDM_MULTIMEDIA DOTNET CORE/ImgToText/wwwroot/uploads/*_*.png
+TDM_MULTIMEDIA DOTNET CORE/ImgToText/Uploads/session-profiles/*.json

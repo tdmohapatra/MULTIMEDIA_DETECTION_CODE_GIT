@@ -370,6 +370,103 @@ namespace STAR_MUTIMEDIA.Controllers
                 return StatusCode(500, new { error = "Internal server error retrieving camera movement analysis" });
             }
         }
+
+        [HttpPost("calibrate/{sessionId}")]
+        public ActionResult<CalibrationResult> StartCalibration(string sessionId, [FromBody] CalibrationRequest request)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(sessionId))
+                {
+                    return BadRequest(new { error = "Session ID is required" });
+                }
+
+                var frameCount = request?.FrameCount ?? 45;
+                var calibration = _detectionService.StartCalibration(sessionId, frameCount);
+                return Ok(calibration);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error starting calibration for session {SessionId}", sessionId);
+                return StatusCode(500, new { error = "Internal server error starting calibration" });
+            }
+        }
+
+        [HttpGet("profiles/{sessionId}")]
+        public ActionResult<List<string>> GetProfiles(string sessionId)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(sessionId))
+                {
+                    return BadRequest(new { error = "Session ID is required" });
+                }
+
+                var profiles = _detectionService.GetSessionProfiles(sessionId);
+                return Ok(profiles);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving profiles for session {SessionId}", sessionId);
+                return StatusCode(500, new { error = "Internal server error retrieving profiles" });
+            }
+        }
+
+        [HttpPost("profiles/{sessionId}/save")]
+        public IActionResult SaveProfile(string sessionId, [FromBody] ProfileRequest request)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(sessionId))
+                {
+                    return BadRequest(new { error = "Session ID is required" });
+                }
+
+                if (string.IsNullOrWhiteSpace(request?.ProfileName))
+                {
+                    return BadRequest(new { error = "Profile name is required" });
+                }
+
+                _detectionService.SaveSessionProfile(sessionId, request.ProfileName.Trim());
+                return Ok(new { message = "Profile saved successfully" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error saving profile for session {SessionId}", sessionId);
+                return StatusCode(500, new { error = "Internal server error saving profile" });
+            }
+        }
+
+        [HttpPost("profiles/{sessionId}/load")]
+        public IActionResult LoadProfile(string sessionId, [FromBody] ProfileRequest request)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(sessionId))
+                {
+                    return BadRequest(new { error = "Session ID is required" });
+                }
+
+                if (string.IsNullOrWhiteSpace(request?.ProfileName))
+                {
+                    return BadRequest(new { error = "Profile name is required" });
+                }
+
+                var loaded = _detectionService.LoadSessionProfile(sessionId, request.ProfileName.Trim());
+                if (!loaded)
+                {
+                    return NotFound(new { error = "Profile not found" });
+                }
+
+                var settings = _detectionService.GetSessionSettings(sessionId);
+                return Ok(new { message = "Profile loaded successfully", settings });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error loading profile for session {SessionId}", sessionId);
+                return StatusCode(500, new { error = "Internal server error loading profile" });
+            }
+        }
     }
 
     // Request/Response DTOs
@@ -387,6 +484,18 @@ namespace STAR_MUTIMEDIA.Controllers
 
         [Required]
         public bool Enable { get; set; }
+    }
+
+    public class CalibrationRequest
+    {
+        [Range(20, 180)]
+        public int FrameCount { get; set; } = 45;
+    }
+
+    public class ProfileRequest
+    {
+        [Required]
+        public string ProfileName { get; set; }
     }
 }
 

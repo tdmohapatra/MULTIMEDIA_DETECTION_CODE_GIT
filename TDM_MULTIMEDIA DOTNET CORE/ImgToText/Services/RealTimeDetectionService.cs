@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
@@ -24,6 +25,7 @@ namespace STAR_MUTIMEDIA.Services
         private readonly ConcurrentDictionary<string, SessionData> _sessions;
         private readonly object _lockObject = new object();
         private bool _disposed = false;
+        private readonly string _sessionProfilesPath;
         private readonly List<MonitoringOption> _availableMonitoringOptions;
         private readonly CascadeClassifier _faceCascade;
         private readonly CascadeClassifier _eyeCascade;
@@ -36,6 +38,8 @@ namespace STAR_MUTIMEDIA.Services
         {
             _tessDataPath = tessDataPath ?? throw new ArgumentNullException(nameof(tessDataPath));
             _sessions = new ConcurrentDictionary<string, SessionData>();
+            _sessionProfilesPath = Path.Combine(Directory.GetCurrentDirectory(), "Uploads", "session-profiles");
+            Directory.CreateDirectory(_sessionProfilesPath);
 
             // Set Tesseract environment variable
             if (!string.IsNullOrEmpty(_tessDataPath))
@@ -177,6 +181,8 @@ namespace STAR_MUTIMEDIA.Services
 
             try
             {
+                DetectionData detectionData = new DetectionData();
+
                 // Frame rate control - skip frames if needed
                 if (ShouldSkipFrame(session))
                 {
@@ -232,7 +238,6 @@ namespace STAR_MUTIMEDIA.Services
                                 throw new InvalidOperationException("Converted OpenCV mat is empty");
                             }
 
-                            var detectionData = new DetectionData();
                             var processedMat = ProcessFrame(mat, session, notifications, logs, detectionData);
                             var outputMat = processedMat.Clone();
                             // Convert back to base64 only if processing was successful
@@ -258,11 +263,36 @@ namespace STAR_MUTIMEDIA.Services
 
                 stopwatch.Stop();
                 UpdateProcessingTime(session, stopwatch.Elapsed.TotalMilliseconds);
+                UpdateCalibration(session);
+
+                var faceExpressions = AnalyzeFaceExpressions(detectionData.Faces);
+                var handGestures = AnalyzeHandGestures(detectionData.Hands);
+                var eyeMovements = AnalyzeEyeMovements(detectionData.Eyes);
+                var vitalMetrics = EstimateVitalMetrics(detectionData.Faces);
+
+                session.Stats.ExpressionsDetected = faceExpressions.Count > 0;
+                session.Stats.GesturesDetected = handGestures.Count > 0;
 
                 result.Stats = session.Stats.Clone();
                 result.Notifications = notifications;
                 result.Logs = logs;
                 result.CapturedText = session.LastDetectedText;
+                result.FaceExpressions = faceExpressions;
+                result.HandGestures = handGestures;
+                result.EyeMovements = eyeMovements;
+                result.VitalMetrics = vitalMetrics;
+                result.Calibration = new CalibrationResult
+                {
+                    SessionId = session.SessionId,
+                    IsCalibrating = session.IsCalibrating,
+                    FramesRemaining = session.CalibrationFramesRemaining,
+                    TotalFrames = session.CalibrationFramesTotal,
+                    BaselineMovement = session.BaselineMovement,
+                    StartedAt = session.CalibrationStartedAt,
+                    Message = session.IsCalibrating
+                        ? $"Calibrating ({session.CalibrationFramesRemaining} frames left)"
+                        : $"Calibrated baseline: {session.BaselineMovement:0.0}%"
+                };
                 result.Success = true;
                 session.Stats.LastUpdate = DateTime.UtcNow;
 
@@ -338,20 +368,25 @@ namespace STAR_MUTIMEDIA.Services
 
             foreach (var face in faces)
             {
+                var expressionSource = face.Expression;
+                var dominantEmotion = expressionSource?.DominantEmotion ?? "Neutral";
+                var confidence = expressionSource?.Confidence ?? face.Confidence;
+                var emotions = expressionSource?.Emotions ?? new Dictionary<string, double>
+                {
+                    { "happy", 0.15 },
+                    { "sad", 0.10 },
+                    { "angry", 0.05 },
+                    { "surprised", 0.10 },
+                    { "neutral", 0.60 }
+                };
+
                 var expression = new FaceExpression
                 {
                     BBox = face.BBox,
-                    Confidence = face.Confidence,
+                    Confidence = confidence,
                     FaceId = face.TrackId,
-                    DominantEmotion = "Neutral", // Default
-                    Emotions = new Dictionary<string, double>
-                    {
-                        { "happy", 0.1 },
-                        { "sad", 0.1 },
-                        { "angry", 0.1 },
-                        { "surprised", 0.1 },
-                        { "neutral", 0.6 }
-                    }
+                    DominantEmotion = dominantEmotion,
+                    Emotions = emotions
                 };
                 expressions.Add(expression);
             }
@@ -370,6 +405,49 @@ namespace STAR_MUTIMEDIA.Services
                 BlinkRate = 15.0,
                 HeadPoseConfidence = 0.8
             };
+        }
+
+        private List<HandGesture> AnalyzeHandGestures(List<HandDetection> hands)
+        {
+            var gestures = new List<HandGesture>();
+
+            foreach (var hand in hands)
+            {
+                gestures.Add(hand.Gesture ?? InferGestureWithModel(hand));
+            }
+
+            return gestures;
+        }
+
+        private List<EyeMovement> AnalyzeEyeMovements(List<EyeDetection> eyes)
+        {
+            var eyeMovements = new List<EyeMovement>();
+
+            foreach (var eye in eyes)
+            {
+                var direction = eye.Gaze switch
+                {
+                    GazeDirection.Left => "Left",
+                    GazeDirection.Right => "Right",
+                    GazeDirection.Up => "Up",
+                    GazeDirection.Down => "Down",
+                    _ => "Center"
+                };
+
+                eyeMovements.Add(new EyeMovement
+                {
+                    BBox = eye.BBox,
+                    Direction = direction,
+                    IsBlinking = string.Equals(eye.State, "Closed", StringComparison.OrdinalIgnoreCase),
+                    Confidence = Math.Clamp(eye.Confidence, 0.1, 0.99),
+                    GazeConfidence = Math.Clamp(eye.Confidence, 0.1, 0.99),
+                    GazePoint = new Point2f(
+                        (float)(eye.BBox.X + (eye.BBox.Width / 2.0)),
+                        (float)(eye.BBox.Y + (eye.BBox.Height / 2.0)))
+                });
+            }
+
+            return eyeMovements;
         }
 
         private bool ShouldSkipFrame(SessionData session)
@@ -452,7 +530,7 @@ namespace STAR_MUTIMEDIA.Services
                     // Hand detection
                     if (IsMonitoringEnabled(config, "HandDetection"))
                     {
-                        SafeHandDetection(processedFrame, grayFrame, stats, notifications, logs, detectionData);
+                        SafeHandDetection(processedFrame, grayFrame, session, stats, notifications, logs, detectionData);
                     }
 
                     // Movement detection
@@ -630,6 +708,16 @@ namespace STAR_MUTIMEDIA.Services
 
                 foreach (var face in faces)
                 {
+                    var faceArea = face.Width * face.Height;
+                    var frameArea = Math.Max(1, grayFrame.Width * grayFrame.Height);
+                    var areaScore = Math.Clamp((double)faceArea / frameArea * 25.0, 0.0, 1.0);
+                    var stabilityScore = Math.Clamp(session.Stats.CameraStability / 100.0, 0.0, 1.0);
+                    var faceConfidence = Math.Clamp(0.40 + 0.35 * areaScore + 0.25 * stabilityScore, 0.05, 0.99);
+                    if (faceConfidence < session.Settings.FaceConfidenceThreshold)
+                    {
+                        continue;
+                    }
+
                     // Draw face rectangle
                     Cv2.Rectangle(processedFrame, face, Scalar.Red, 2);
                     Cv2.PutText(processedFrame, "Face",
@@ -637,6 +725,7 @@ namespace STAR_MUTIMEDIA.Services
                         HersheyFonts.HersheySimplex, 0.5, Scalar.Red, 1);
 
                     // Add to detection data
+                    var faceExpression = AnalyzeFaceEmotion(grayFrame, face, session);
                     detectionData.Faces.Add(new FaceDetection
                     {
                         BBox = new BoundingBox
@@ -646,7 +735,8 @@ namespace STAR_MUTIMEDIA.Services
                             Width = face.Width,
                             Height = face.Height
                         },
-                        Confidence = 0.85,
+                        Confidence = faceConfidence,
+                        Expression = faceExpression,
                         TrackId = detectionData.Faces.Count
                     });
 
@@ -657,18 +747,20 @@ namespace STAR_MUTIMEDIA.Services
                     }
                 }
 
-                if (faces.Length > 0 && !session.LastFaceState)
+                stats.FacesDetected = detectionData.Faces.Count;
+
+                if (detectionData.Faces.Count > 0 && !session.LastFaceState)
                 {
                     notifications.Add(new DetectionNotification
                     {
                         Type = "FaceDetection",
-                        Message = $"{faces.Length} face(s) detected",
+                        Message = $"{detectionData.Faces.Count} face(s) detected",
                         Timestamp = DateTime.UtcNow,
                         Severity = "Info",
                         Category = "Detection"
                     });
                 }
-                session.LastFaceState = faces.Length > 0;
+                session.LastFaceState = detectionData.Faces.Count > 0;
             }
             catch (Exception ex)
             {
@@ -697,6 +789,30 @@ namespace STAR_MUTIMEDIA.Services
                 foreach (var eye in eyes)
                 {
                     var eyeRect = new Rect(face.X + eye.X, face.Y + eye.Y, eye.Width, eye.Height);
+                    var eyeCenterX = eyeRect.X + (eyeRect.Width / 2.0);
+                    var eyeCenterY = eyeRect.Y + (eyeRect.Height / 2.0);
+                    var faceCenterX = face.X + (face.Width / 2.0);
+                    var faceCenterY = face.Y + (face.Height / 2.0);
+                    var normalizedOffsetX = (eyeCenterX - faceCenterX) / Math.Max(1, face.Width);
+                    var normalizedOffsetY = (eyeCenterY - faceCenterY) / Math.Max(1, face.Height);
+                    var gaze = normalizedOffsetX switch
+                    {
+                        < -0.15 => GazeDirection.Left,
+                        > 0.15 => GazeDirection.Right,
+                        _ => GazeDirection.Center
+                    };
+                    if (gaze == GazeDirection.Center)
+                    {
+                        gaze = normalizedOffsetY switch
+                        {
+                            < -0.10 => GazeDirection.Up,
+                            > 0.10 => GazeDirection.Down,
+                            _ => GazeDirection.Center
+                        };
+                    }
+                    var eyeAspectRatio = eyeRect.Height / (double)Math.Max(1, eyeRect.Width);
+                    var eyeState = eyeAspectRatio < 0.28 ? "Closed" : "Open";
+
                     Cv2.Rectangle(processedFrame, eyeRect, Scalar.Blue, 1);
                     Cv2.PutText(processedFrame, "Eye",
                         new Point(face.X + eye.X, face.Y + eye.Y - 5),
@@ -712,8 +828,8 @@ namespace STAR_MUTIMEDIA.Services
                             Height = eye.Height
                         },
                         Confidence = 0.75,
-                        State = "Open",
-                        Gaze = GazeDirection.Center,
+                        State = eyeState,
+                        Gaze = gaze,
                         TrackId = detectionData.Eyes.Count
                     });
                 }
@@ -724,7 +840,7 @@ namespace STAR_MUTIMEDIA.Services
             }
         }
 
-        private void SafeHandDetection(Mat processedFrame, Mat grayFrame, DetectionStats stats,
+        private void SafeHandDetection(Mat processedFrame, Mat grayFrame, SessionData session, DetectionStats stats,
             List<DetectionNotification> notifications, List<SystemLog> logs, DetectionData detectionData)
         {
             try
@@ -754,12 +870,23 @@ namespace STAR_MUTIMEDIA.Services
 
                 foreach (var hand in hands)
                 {
+                    var handArea = hand.Width * hand.Height;
+                    var frameArea = Math.Max(1, grayFrame.Width * grayFrame.Height);
+                    var areaScore = Math.Clamp((double)handArea / frameArea * 35.0, 0.0, 1.0);
+                    var aspectRatio = hand.Width / (double)Math.Max(1, hand.Height);
+                    var shapeScore = 1.0 - Math.Min(1.0, Math.Abs(1.0 - aspectRatio));
+                    var handConfidence = Math.Clamp(0.35 + 0.40 * areaScore + 0.25 * shapeScore, 0.05, 0.99);
+                    if (handConfidence < session.Settings.HandConfidenceThreshold)
+                    {
+                        continue;
+                    }
+
                     Cv2.Rectangle(processedFrame, hand, Scalar.Green, 2);
                     Cv2.PutText(processedFrame, "Hand",
                         new Point(hand.X, hand.Y - 10),
                         HersheyFonts.HersheySimplex, 0.5, Scalar.Green, 1);
 
-                    detectionData.Hands.Add(new HandDetection
+                    var handDetection = new HandDetection
                     {
                         BBox = new BoundingBox
                         {
@@ -768,13 +895,17 @@ namespace STAR_MUTIMEDIA.Services
                             Width = hand.Width,
                             Height = hand.Height
                         },
-                        Confidence = 0.70,
+                        Confidence = handConfidence,
                         Handedness = "Unknown",
                         TrackId = detectionData.Hands.Count
-                    });
+                    };
+                    handDetection.Gesture = InferGestureWithModel(handDetection);
+                    detectionData.Hands.Add(handDetection);
                 }
 
-                if (hands.Length > 0)
+                stats.HandsDetected = detectionData.Hands.Count;
+
+                if (detectionData.Hands.Count > 0)
                 {
                     notifications.Add(new DetectionNotification
                     {
@@ -806,7 +937,8 @@ namespace STAR_MUTIMEDIA.Services
             {
                 var movementLevel = CalculateMovementLevel(currentFrame, session.PreviousFrame);
                 stats.CurrentMovementLevel = movementLevel;
-                stats.MovementDetected = movementLevel > session.Settings.MovementThreshold;
+                var effectiveThreshold = Math.Max(session.Settings.MovementThreshold, session.BaselineMovement * 1.35);
+                stats.MovementDetected = movementLevel > effectiveThreshold;
 
                 if (stats.MovementDetected && !session.LastMovementState)
                 {
@@ -1114,6 +1246,18 @@ namespace STAR_MUTIMEDIA.Services
                     MovementHistory = new List<MovementVector>()
                 },
                 (id, existing) => existing);
+
+            if (_sessions.TryGetValue(sessionId, out var session) && !session.ProfileLoaded)
+            {
+                ApplyPersistedSessionProfile(sessionId, session, "default");
+                var lastSelectedProfile = GetLastSelectedProfile(sessionId);
+                if (!string.IsNullOrWhiteSpace(lastSelectedProfile) &&
+                    !string.Equals(lastSelectedProfile, "default", StringComparison.OrdinalIgnoreCase))
+                {
+                    ApplyPersistedSessionProfile(sessionId, session, lastSelectedProfile);
+                }
+                session.ProfileLoaded = true;
+            }
         }
 
         public DetectionStats GetSessionStats(string sessionId)
@@ -1121,6 +1265,16 @@ namespace STAR_MUTIMEDIA.Services
             return _sessions.TryGetValue(sessionId, out var session)
                 ? session.Stats.Clone()
                 : new DetectionStats();
+        }
+
+        public DetectionSettings GetSessionSettings(string sessionId)
+        {
+            if (_sessions.TryGetValue(sessionId, out var session))
+            {
+                return session.Settings ?? new DetectionSettings();
+            }
+
+            return new DetectionSettings();
         }
 
         public SessionAnalytics GetSessionAnalytics(string sessionId)
@@ -1157,6 +1311,7 @@ namespace STAR_MUTIMEDIA.Services
             if (_sessions.TryGetValue(sessionId, out var session))
             {
                 session.Settings = settings ?? new DetectionSettings();
+                PersistSessionProfile(session, "default");
             }
         }
 
@@ -1169,6 +1324,7 @@ namespace STAR_MUTIMEDIA.Services
         {
             if (_sessions.TryRemove(sessionId, out var session))
             {
+                PersistSessionProfile(session, "default");
                 SafeDispose(session.PreviousFrame);
                 SafeDispose(session.PreviousGrayFrame);
             }
@@ -1347,6 +1503,333 @@ namespace STAR_MUTIMEDIA.Services
             }
         }
 
+        public CalibrationResult StartCalibration(string sessionId, int frameCount)
+        {
+            InitializeSessionIfNotExists(sessionId);
+            var session = _sessions[sessionId];
+            var calibrationFrames = Math.Max(20, Math.Min(180, frameCount));
+
+            session.IsCalibrating = true;
+            session.CalibrationFramesTotal = calibrationFrames;
+            session.CalibrationFramesRemaining = calibrationFrames;
+            session.BaselineMovementSum = 0.0;
+            session.BaselineMovement = 5.0;
+            session.CalibrationStartedAt = DateTime.UtcNow;
+            PersistSessionProfile(session, "default");
+
+            return new CalibrationResult
+            {
+                SessionId = sessionId,
+                IsCalibrating = true,
+                FramesRemaining = session.CalibrationFramesRemaining,
+                TotalFrames = session.CalibrationFramesTotal,
+                BaselineMovement = session.BaselineMovement,
+                StartedAt = session.CalibrationStartedAt,
+                Message = "Calibration started. Keep camera stable for best results."
+            };
+        }
+
+        private void UpdateCalibration(SessionData session)
+        {
+            if (!session.IsCalibrating || session.CalibrationFramesRemaining <= 0)
+            {
+                return;
+            }
+
+            session.BaselineMovementSum += session.Stats.CurrentMovementLevel;
+            session.CalibrationFramesRemaining--;
+
+            if (session.CalibrationFramesRemaining <= 0)
+            {
+                session.IsCalibrating = false;
+                session.BaselineMovement = session.BaselineMovementSum / Math.Max(1, session.CalibrationFramesTotal);
+                session.Settings.MovementThreshold = Math.Max(8.0, session.BaselineMovement * 1.5);
+                PersistSessionProfile(session, "default");
+            }
+        }
+
+        public void SaveSessionProfile(string sessionId, string profileName)
+        {
+            InitializeSessionIfNotExists(sessionId);
+            if (_sessions.TryGetValue(sessionId, out var session))
+            {
+                var normalizedProfileName = string.IsNullOrWhiteSpace(profileName) ? "default" : profileName.Trim();
+                PersistSessionProfile(session, normalizedProfileName);
+                SetLastSelectedProfile(sessionId, normalizedProfileName);
+            }
+        }
+
+        public bool LoadSessionProfile(string sessionId, string profileName)
+        {
+            InitializeSessionIfNotExists(sessionId);
+            if (_sessions.TryGetValue(sessionId, out var session))
+            {
+                var normalizedProfileName = string.IsNullOrWhiteSpace(profileName) ? "default" : profileName.Trim();
+                var loaded = ApplyPersistedSessionProfile(sessionId, session, normalizedProfileName);
+                if (loaded)
+                {
+                    SetLastSelectedProfile(sessionId, normalizedProfileName);
+                }
+
+                return loaded;
+            }
+
+            return false;
+        }
+
+        public List<string> GetSessionProfiles(string sessionId)
+        {
+            var safeSession = SanitizeKey(sessionId);
+            if (!Directory.Exists(_sessionProfilesPath))
+            {
+                return new List<string>();
+            }
+
+            var prefix = $"{safeSession}__";
+            return Directory
+                .GetFiles(_sessionProfilesPath, $"{safeSession}__*.json")
+                .Select(path => Path.GetFileNameWithoutExtension(path))
+                .Where(name => name.StartsWith(prefix, StringComparison.Ordinal))
+                .Select(name => name.Substring(prefix.Length))
+                .OrderBy(name => name)
+                .ToList();
+        }
+
+        private string GetSessionProfilePath(string sessionId, string profileName)
+        {
+            var safeSession = SanitizeKey(sessionId);
+            var normalizedProfile = string.IsNullOrWhiteSpace(profileName) ? "default" : profileName;
+            var safeProfile = SanitizeKey(normalizedProfile);
+            return Path.Combine(_sessionProfilesPath, $"{safeSession}__{safeProfile}.json");
+        }
+
+        private string GetSessionProfileMetaPath(string sessionId)
+        {
+            var safeSession = SanitizeKey(sessionId);
+            return Path.Combine(_sessionProfilesPath, $"{safeSession}.meta.json");
+        }
+
+        private static string SanitizeKey(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return "default";
+            }
+
+            return new string(value.Select(ch => char.IsLetterOrDigit(ch) ? ch : '_').ToArray());
+        }
+
+        private string GetLastSelectedProfile(string sessionId)
+        {
+            try
+            {
+                var metaPath = GetSessionProfileMetaPath(sessionId);
+                if (!File.Exists(metaPath))
+                {
+                    return null;
+                }
+
+                var json = File.ReadAllText(metaPath);
+                var meta = JsonSerializer.Deserialize<SessionProfileMeta>(json);
+                return string.IsNullOrWhiteSpace(meta?.LastSelectedProfile) ? null : meta.LastSelectedProfile;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Session profile meta load failed for {sessionId}: {ex.Message}");
+                return null;
+            }
+        }
+
+        private void SetLastSelectedProfile(string sessionId, string profileName)
+        {
+            try
+            {
+                var meta = new SessionProfileMeta
+                {
+                    SessionId = sessionId,
+                    LastSelectedProfile = string.IsNullOrWhiteSpace(profileName) ? "default" : profileName,
+                    UpdatedAt = DateTime.UtcNow
+                };
+                var json = JsonSerializer.Serialize(meta, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(GetSessionProfileMetaPath(sessionId), json);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Session profile meta save failed for {sessionId}: {ex.Message}");
+            }
+        }
+
+        private bool ApplyPersistedSessionProfile(string sessionId, SessionData session, string profileName)
+        {
+            try
+            {
+                var profilePath = GetSessionProfilePath(sessionId, profileName);
+                if (!File.Exists(profilePath))
+                {
+                    return false;
+                }
+
+                var json = File.ReadAllText(profilePath);
+                var profile = JsonSerializer.Deserialize<SessionProfile>(json);
+                if (profile == null)
+                {
+                    return false;
+                }
+
+                session.Settings = profile.Settings ?? session.Settings ?? new DetectionSettings();
+                session.BaselineMovement = profile.BaselineMovement > 0 ? profile.BaselineMovement : session.BaselineMovement;
+                session.IsCalibrating = false;
+                session.CalibrationFramesTotal = 0;
+                session.CalibrationFramesRemaining = 0;
+                session.BaselineMovementSum = 0;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Session profile load failed for {sessionId}: {ex.Message}");
+                return false;
+            }
+        }
+
+        private void PersistSessionProfile(SessionData session, string profileName)
+        {
+            if (session == null || string.IsNullOrWhiteSpace(session.SessionId))
+            {
+                return;
+            }
+
+            try
+            {
+                var profile = new SessionProfile
+                {
+                    SessionId = session.SessionId,
+                    ProfileName = string.IsNullOrWhiteSpace(profileName) ? "default" : profileName,
+                    Settings = session.Settings ?? new DetectionSettings(),
+                    BaselineMovement = session.BaselineMovement,
+                    UpdatedAt = DateTime.UtcNow
+                };
+                var json = JsonSerializer.Serialize(profile, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(GetSessionProfilePath(session.SessionId, profileName), json);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Session profile save failed for {session.SessionId}: {ex.Message}");
+            }
+        }
+
+        private sealed class SessionProfile
+        {
+            public string SessionId { get; set; }
+            public string ProfileName { get; set; }
+            public DetectionSettings Settings { get; set; }
+            public double BaselineMovement { get; set; }
+            public DateTime UpdatedAt { get; set; }
+        }
+
+        private sealed class SessionProfileMeta
+        {
+            public string SessionId { get; set; }
+            public string LastSelectedProfile { get; set; }
+            public DateTime UpdatedAt { get; set; }
+        }
+
+        private FaceExpression AnalyzeFaceEmotion(Mat grayFrame, Rect faceRect, SessionData session)
+        {
+            var expression = new FaceExpression
+            {
+                DominantEmotion = "Neutral",
+                Confidence = 0.65,
+                Emotions = new Dictionary<string, double>
+                {
+                    { "happy", 0.15 },
+                    { "sad", 0.10 },
+                    { "angry", 0.05 },
+                    { "surprised", 0.10 },
+                    { "neutral", 0.60 }
+                }
+            };
+
+            if (_smile == null || _smile.Empty())
+            {
+                return expression;
+            }
+
+            try
+            {
+                using (var faceRegion = grayFrame[faceRect])
+                {
+                    var eyes = _eyeCascade?.DetectMultiScale(faceRegion, 1.1, 4, HaarDetectionTypes.ScaleImage, new Size(10, 10))
+                               ?? Array.Empty<Rect>();
+                    var smiles = _smile.DetectMultiScale(faceRegion, 1.7, 20);
+                    var smileScore = Math.Clamp(smiles.Length / 2.0, 0.0, 1.0);
+                    var eyesOpenScore = Math.Clamp(eyes.Length / 2.0, 0.0, 1.0);
+                    var stabilityScore = Math.Clamp(session.Stats.CameraStability / 100.0, 0.0, 1.0);
+
+                    var logits = new Dictionary<string, double>
+                    {
+                        { "happy", 0.20 + 1.80 * smileScore + 0.20 * eyesOpenScore },
+                        { "neutral", 0.60 + 0.90 * stabilityScore - 0.60 * smileScore },
+                        { "surprised", 0.20 + 0.70 * eyesOpenScore + 0.30 * (1.0 - stabilityScore) },
+                        { "sad", 0.10 + 0.50 * (1.0 - eyesOpenScore) + 0.30 * (1.0 - smileScore) },
+                        { "angry", 0.05 + 0.35 * (1.0 - stabilityScore) }
+                    };
+                    var probabilities = Softmax(logits);
+
+                    expression.Emotions = probabilities;
+                    expression.DominantEmotion = probabilities.OrderByDescending(kv => kv.Value).First().Key;
+                    expression.Confidence = probabilities[expression.DominantEmotion];
+                }
+            }
+            catch
+            {
+                // Keep neutral fallback expression
+            }
+
+            return expression;
+        }
+
+        private HandGesture InferGestureWithModel(HandDetection hand)
+        {
+            var width = Math.Max(1.0, hand.BBox.Width);
+            var height = Math.Max(1.0, hand.BBox.Height);
+            var area = width * height;
+            var aspect = width / height;
+
+            var logits = new Dictionary<string, double>
+            {
+                { "OpenPalm", 0.20 + 0.80 * (1.0 - Math.Abs(1.0 - aspect)) + 0.40 * Math.Min(1.0, area / 50000.0) },
+                { "Pointing", 0.10 + 1.20 * Math.Max(0.0, aspect - 1.20) },
+                { "RaisedHand", 0.15 + 0.60 * Math.Min(1.0, area / 30000.0) },
+                { "Fist", 0.10 + 0.90 * Math.Max(0.0, 1.0 - (area / 18000.0)) }
+            };
+
+            var probabilities = Softmax(logits);
+            var top = probabilities.OrderByDescending(kv => kv.Value).First();
+
+            return new HandGesture
+            {
+                BBox = hand.BBox,
+                Handedness = hand.Handedness ?? "Unknown",
+                Type = top.Key,
+                Confidence = Math.Clamp(top.Value, 0.1, 0.99),
+                Meaning = top.Key switch
+                {
+                    "OpenPalm" => "Open hand detected",
+                    "Pointing" => "Pointing-like hand pose",
+                    "RaisedHand" => "Raised hand gesture",
+                    _ => "Closed hand posture"
+                }
+            };
+        }
+
+        private Dictionary<string, double> Softmax(Dictionary<string, double> logits)
+        {
+            var maxLogit = logits.Values.Max();
+            var expValues = logits.ToDictionary(kv => kv.Key, kv => Math.Exp(kv.Value - maxLogit));
+            var sum = expValues.Values.Sum();
+            return expValues.ToDictionary(kv => kv.Key, kv => kv.Value / Math.Max(sum, double.Epsilon));
+        }
+
         public void Dispose()
         {
             Dispose(true);
@@ -1382,1240 +1865,3 @@ namespace STAR_MUTIMEDIA.Services
         }
     }
 }
-
-
-//using OpenCvSharp;
-//using OpenCvSharp.Extensions;
-//using STAR_MUTIMEDIA.Models;
-//using System;
-//using System.Collections.Concurrent;
-//using System.Collections.Generic;
-//using System.Diagnostics;
-//using System.Drawing;
-//using System.IO;
-//using System.Linq;
-//using System.Threading.Tasks;
-//using Tesseract;
-//using SD = System.Drawing;
-//using SDI = System.Drawing.Imaging;
-
-//using Point = OpenCvSharp.Point;
-//using Rect = OpenCvSharp.Rect;
-//using Size = OpenCvSharp.Size;
-
-
-//namespace STAR_MUTIMEDIA.Services
-//{
-//    public class RealTimeDetectionService : IRealTimeDetectionService, IDisposable
-//    {
-//        private readonly string _tessDataPath;
-//        private readonly ConcurrentDictionary<string, SessionData> _sessions;
-//        private readonly object _lockObject = new object();
-//        private bool _disposed = false;
-//        private readonly List<MonitoringOption> _availableMonitoringOptions;
-
-//        public RealTimeDetectionService(string tessDataPath)
-//        {
-//            _tessDataPath = tessDataPath ?? throw new ArgumentNullException(nameof(tessDataPath));
-//            _sessions = new ConcurrentDictionary<string, SessionData>();
-//            Environment.SetEnvironmentVariable("TESSDATA_PREFIX", _tessDataPath);
-
-//            // Initialize available monitoring options
-//            _availableMonitoringOptions = InitializeMonitoringOptions();
-//        }
-
-//        private List<MonitoringOption> InitializeMonitoringOptions()
-//        {
-//            return new List<MonitoringOption>
-//            {
-//                new MonitoringOption { Name = "FaceDetection", DisplayName = "Face Detection", IsEnabled = true, Category = "People", Description = "Detect human faces in the frame" },
-//                new MonitoringOption { Name = "EyeDetection", DisplayName = "Eye Detection", IsEnabled = true, Category = "People", Description = "Detect eyes within detected faces" },
-//                new MonitoringOption { Name = "HandDetection", DisplayName = "Hand Detection", IsEnabled = true, Category = "People", Description = "Detect hands and gestures" },
-//                new MonitoringOption { Name = "MovementDetection", DisplayName = "Movement Detection", IsEnabled = true, Category = "Motion", Description = "Detect general movement in the scene" },
-//                new MonitoringOption { Name = "TextDetection", DisplayName = "Text Detection", IsEnabled = true, Category = "Objects", Description = "Extract text using OCR" },
-//                new MonitoringOption { Name = "CameraMovementAnalysis", DisplayName = "Camera Movement Analysis", IsEnabled = true, Category = "Camera", Description = "Analyze camera stability and movement patterns" },
-//                new MonitoringOption { Name = "ObjectTracking", DisplayName = "Object Tracking", IsEnabled = false, Category = "Objects", Description = "Track objects across frames" },
-//                new MonitoringOption { Name = "FaceRecognition", DisplayName = "Face Recognition", IsEnabled = false, Category = "People", Description = "Recognize specific individuals" }
-//            };
-//        }
-
-//        public async Task<DetectionResult> ProcessFrameAsync(FrameData frameData)
-//        {
-//            if (frameData == null)
-//                throw new ArgumentNullException(nameof(frameData));
-
-//            var sessionId = frameData.SessionId;
-//            InitializeSessionIfNotExists(sessionId);
-
-//            var session = _sessions[sessionId];
-//            var result = new DetectionResult();
-//            var notifications = new List<string>();
-//            var logs = new List<string>();
-//            var detectedObjects = new List<DetectedObject>();
-
-//            try
-//            {
-//                // Frame rate control - skip frames if needed
-//                if (ShouldSkipFrame(session))
-//                {
-//                    session.FramesToSkip--;
-//                    result.Stats = session.Stats.Clone();
-//                    result.Notifications.Add("Frame skipped for rate control");
-//                    return await Task.FromResult(result);
-//                }
-
-//                var stopwatch = Stopwatch.StartNew();
-
-//                // Convert base64 to image
-//                var imageDataParts = frameData.ImageData?.Split(',');
-//                if (imageDataParts == null || imageDataParts.Length == 0)
-//                    throw new ArgumentException("Invalid image data");
-
-//                var imageBytes = Convert.FromBase64String(imageDataParts.Length > 1 ? imageDataParts[1] : imageDataParts[0]);
-
-//                using (var ms = new MemoryStream(imageBytes))
-//                using (var image = SD.Image.FromStream(ms))
-//                using (var bitmap = new SD.Bitmap(image))
-//                {
-//                    // Convert to OpenCV Mat
-//                    using (var mat = BitmapConverter.ToMat(bitmap))
-//                    {
-//                        var processedMat = ProcessFrame(mat, session, notifications, logs, detectedObjects);
-
-//                        // Convert back to base64
-//                        using (var processedBitmap = BitmapConverter.ToBitmap(processedMat))
-//                        using (var outputMs = new MemoryStream())
-//                        {
-//                            processedBitmap.Save(outputMs, SDI.ImageFormat.Jpeg);
-//                            result.ImageData = "data:image/jpeg;base64," + Convert.ToBase64String(outputMs.ToArray());
-//                        }
-//                    }
-//                }
-
-//                stopwatch.Stop();
-//                UpdateProcessingTime(session, stopwatch.Elapsed.TotalMilliseconds);
-
-//                result.Stats = session.Stats.Clone();
-//                result.Notifications = notifications;
-//                result.Logs = logs;
-//                result.DetectedObjects = detectedObjects;
-//                result.CapturedText = session.LastDetectedText;
-//                session.Stats.LastUpdate = DateTime.Now;
-//            }
-//            catch (Exception ex)
-//            {
-//                logs.Add($"Error processing frame: {ex.Message}");
-//                result.Logs = logs;
-//            }
-
-//            return await Task.FromResult(result);
-//        }
-
-//        public async Task<EnhancedDetectionResult> ProcessEnhancedFrameAsync(EnhancedFrameData frameData)
-//        {
-//            if (frameData == null)
-//                throw new ArgumentNullException(nameof(frameData));
-
-//            var basicResult = await ProcessFrameAsync(frameData);
-//            var enhancedResult = new EnhancedDetectionResult
-//            {
-//                ImageData = basicResult.ImageData,
-//                Stats = basicResult.Stats,
-//                Notifications = basicResult.Notifications.Select(n => new DetectionNotification
-//                {
-//                    Type = "Detection",
-//                    Message = n,
-//                    Timestamp = DateTime.Now,
-//                    Severity = "Info"
-//                }).ToList(),
-//                Logs = basicResult.Logs,
-//                DetectedObjects = basicResult.DetectedObjects,
-//                CapturedText = basicResult.CapturedText,
-//                // Enhanced features would be implemented here
-//                FaceExpressions = new List<FaceExpression>(),
-//                HandGestures = new List<HandGesture>(),
-//                EyeMovements = new List<EyeMovement>(),
-//                VitalMetrics = new VitalMetrics()
-//            };
-
-//            return enhancedResult;
-//        }
-
-//        private bool ShouldSkipFrame(SessionData session)
-//        {
-//            if (!session.Settings.EnableFrameRateControl)
-//                return false;
-
-//            var targetFPS = session.Settings.TargetFPS;
-//            var currentTime = DateTime.Now;
-
-//            if (session.LastFrameTime != DateTime.MinValue)
-//            {
-//                var timeSinceLastFrame = (currentTime - session.LastFrameTime).TotalSeconds;
-//                var targetFrameTime = 1.0 / targetFPS;
-
-//                if (timeSinceLastFrame < targetFrameTime)
-//                {
-//                    return true;
-//                }
-//            }
-
-//            session.LastFrameTime = currentTime;
-//            return false;
-//        }
-
-//        private void UpdateProcessingTime(SessionData session, double processingTimeMs)
-//        {
-//            session.ProcessingTimes.Enqueue(processingTimeMs);
-//            if (session.ProcessingTimes.Count > 10) // Keep last 10 processing times
-//            {
-//                session.ProcessingTimes.Dequeue();
-//            }
-
-//            // Calculate actual FPS based on processing time
-//            var avgProcessingTime = session.ProcessingTimes.Average();
-//            session.Stats.ActualProcessingFPS = avgProcessingTime > 0 ? 1000.0 / avgProcessingTime : 0;
-//        }
-
-//        private Mat ProcessFrame(Mat frame, SessionData session, List<string> notifications,
-//            List<string> logs, List<DetectedObject> detectedObjects)
-//        {
-//            var processedFrame = frame.Clone();
-//            var stats = session.Stats;
-//            var config = session.MonitoringConfig;
-
-//            try
-//            {
-//                using (var grayFrame = new Mat())
-//                {
-//                    Cv2.CvtColor(frame, grayFrame, ColorConversionCodes.BGR2GRAY);
-//                    Cv2.EqualizeHist(grayFrame, grayFrame);
-
-//                    // Camera movement analysis
-//                    if (IsMonitoringEnabled(config, "CameraMovementAnalysis"))
-//                    {
-//                        AnalyzeCameraMovement(frame, grayFrame, session, stats, notifications);
-//                    }
-
-//                    // Load cascades
-//                    var cascadesPath = Path.Combine(Directory.GetCurrentDirectory(), "Uploads", "cascades");
-
-//                    // Face detection
-//                    if (IsMonitoringEnabled(config, "FaceDetection"))
-//                    {
-//                        //   DetectFacesAndEyes(processedFrame, grayFrame, session, stats, notifications, logs, cascadesPath, detectedObjects);
-//                        SafeFaceDetection(processedFrame, grayFrame, session, stats, notifications, logs, cascadesPath, detectedObjects);
-
-//                        // DetectFacesAndEyes
-//                    }
-
-//                    // Hand detection
-//                    if (IsMonitoringEnabled(config, "HandDetection"))
-//                    {
-//                        DetectHands(processedFrame, grayFrame, stats, notifications, logs, cascadesPath, detectedObjects);
-//                    }
-
-//                    // Movement detection
-//                    if (IsMonitoringEnabled(config, "MovementDetection") && session.PreviousFrame != null)
-//                    {
-//                      //  DetectMovement(frame, processedFrame, session, stats, notifications, logs, detectedObjects);
-//                        SafeMovementDetection(frame, processedFrame, session, stats, notifications, logs, detectedObjects);
-//                    }
-
-//                    // Text detection every 15 frames (for performance)
-//                    if (IsMonitoringEnabled(config, "TextDetection") && stats.TotalFramesProcessed % 15 == 0)
-//                    {
-//                        DetectText(processedFrame, stats, notifications, logs, session, detectedObjects);
-//                    }
-
-//                    // Update previous frame
-//                    session.PreviousFrame?.Dispose();
-//                    session.PreviousFrame = frame.Clone();
-
-//                    session.PreviousGrayFrame?.Dispose();
-//                    session.PreviousGrayFrame = grayFrame.Clone();
-
-//                    // Update statistics
-//                    stats.TotalFramesProcessed++;
-//                    stats.TargetFPS = session.Settings.TargetFPS;
-//                    UpdateFPS(stats);
-
-//                    // Overlay stats and camera movement status
-//                    AddStatsOverlay(processedFrame, stats);
-//                    AddCameraMovementStatus(processedFrame, stats);
-//                }
-//            }
-//            catch (Exception ex)
-//            {
-//                logs.Add($"Frame processing error: {ex.Message}");
-//                SafeDispose(processedFrame);
-//              //  SafeDispose(grayFrame);
-//                return frame?.Clone() ?? new Mat(480, 640, MatType.CV_8UC3, Scalar.Black);
-
-//            }
-
-//            return processedFrame;
-//        }
-//        private void SafeDispose(IDisposable disposable)
-//        {
-//            try
-//            {
-//                disposable?.Dispose();
-//            }
-//            catch (Exception ex)
-//            {
-//                Debug.WriteLine($"SafeDispose error: {ex.Message}");
-//            }
-//        }
-
-//        private bool IsMonitoringEnabled(MonitoringConfiguration config, string optionName)
-//        {
-//            var option = config.EnabledOptions.FirstOrDefault(o => o.Name == optionName);
-//            return option?.IsEnabled ?? false;
-//        }
-
-
-//        private void AnalyzeCameraMovement(Mat currentFrame, Mat grayFrame, SessionData session,
-//      DetectionStats stats, List<string> notifications)
-//        {
-//            if (session.PreviousGrayFrame == null || session.PreviousGrayFrame.Empty() || grayFrame.Empty())
-//                return;
-
-//            try
-//            {
-//                // Ultra-safe frame differencing approach
-//                double movementLevel = 0.0;
-
-//                using (var diff = new Mat())
-//                {
-//                    Cv2.Absdiff(session.PreviousGrayFrame, grayFrame, diff);
-//                    Cv2.Threshold(diff, diff, 25, 255, ThresholdTypes.Binary);
-
-//                    var nonZeroPixels = Cv2.CountNonZero(diff);
-//                    var totalPixels = diff.Width * diff.Height;
-//                    movementLevel = totalPixels > 0 ? (double)nonZeroPixels / totalPixels * 100.0 : 0.0;
-//                }
-
-//                // Calculate stability (inverse of movement)
-//                double stability = Math.Max(0, 100 - movementLevel * 1.5);
-
-//                // Determine movement type based on movement level
-//                var movementType = movementLevel switch
-//                {
-//                    < 1.0 => CameraMovementType.Stable,
-//                    < 5.0 => CameraMovementType.SlowPan,
-//                    < 10.0 => CameraMovementType.SlowTilt,
-//                    < 20.0 => CameraMovementType.FastPan,
-//                    < 30.0 => CameraMovementType.FastTilt,
-//                    _ => CameraMovementType.Shaking
-//                };
-
-//                // Update stats
-//                stats.CameraMovement = movementType;
-//                stats.CameraStability = stability;
-//                stats.CurrentMovementLevel = movementLevel;
-
-//                // Create simple movement vector for display
-//                stats.RecentMovements = new List<MovementVector>
-//        {
-//            new MovementVector
-//            {
-//                X = movementLevel / 10.0,
-//                Y = movementLevel / 10.0,
-//                Magnitude = movementLevel,
-//                Timestamp = DateTime.Now
-//            }
-//        };
-
-//                // Add notification if stability is low
-//                if (stability < session.Settings.CameraStabilityThreshold && movementLevel > 5.0)
-//                {
-//                    notifications.Add($"Camera stability low: {stability:0}% (Movement: {movementLevel:0.0}%)");
-//                }
-//            }
-//            catch (Exception ex)
-//            {
-//                Debug.WriteLine($"Camera movement analysis error: {ex.Message}");
-//                // Safe fallback values
-//                stats.CameraMovement = CameraMovementType.Stable;
-//                stats.CameraStability = 100.0;
-//                stats.CurrentMovementLevel = 0.0;
-//                stats.RecentMovements = new List<MovementVector>();
-//            }
-//        }
-//        private List<MovementVector> CalculateSimpleMotionVectors(Mat prevGray, Mat currGray)
-//        {
-//            var movements = new List<MovementVector>();
-
-//            try
-//            {
-//                // Use a much simpler and safer approach - frame differencing
-//                using (var diff = new Mat())
-//                {
-//                    Cv2.Absdiff(prevGray, currGray, diff);
-//                    Cv2.Threshold(diff, diff, 25, 255, ThresholdTypes.Binary);
-
-//                    // Calculate overall movement level
-//                    var nonZeroPixels = Cv2.CountNonZero(diff);
-//                    var totalPixels = diff.Width * diff.Height;
-//                    var movementLevel = (double)nonZeroPixels / totalPixels * 100.0;
-
-//                    // Create a simple movement vector based on overall movement
-//                    if (movementLevel > 1.0) // Only add if there's significant movement
-//                    {
-//                        movements.Add(new MovementVector
-//                        {
-//                            X = movementLevel / 10.0, // Simplified representation
-//                            Y = movementLevel / 10.0,
-//                            Magnitude = movementLevel,
-//                            Timestamp = DateTime.Now
-//                        });
-//                    }
-//                }
-//            }
-//            catch (Exception ex)
-//            {
-//                Debug.WriteLine($"Safe motion vector calculation error: {ex.Message}");
-//                // Return empty list instead of crashing
-//            }
-
-//            return movements;
-//        }
-
-//        private (int dx, int dy, double diff)? FindBestMatch(Mat frame, Mat block, int x, int y, int searchRange)
-//        {
-//            double minDiff = double.MaxValue;
-//            int bestDx = 0, bestDy = 0;
-
-//            for (int dy = -searchRange; dy <= searchRange; dy++)
-//            {
-//                for (int dx = -searchRange; dx <= searchRange; dx++)
-//                {
-//                    int newX = x + dx;
-//                    int newY = y + dy;
-
-//                    if (newX >= 0 && newY >= 0 && newX + block.Width < frame.Width && newY + block.Height < frame.Height)
-//                    {
-//                        var candidate = frame[new Rect(newX, newY, block.Width, block.Height)];
-//                        using (var diff = new Mat())
-//                        {
-//                            Cv2.Absdiff(block, candidate, diff);
-//                            var sumDiff = Cv2.Sum(diff).Val0;
-
-//                            if (sumDiff < minDiff)
-//                            {
-//                                minDiff = sumDiff;
-//                                bestDx = dx;
-//                                bestDy = dy;
-//                            }
-//                        }
-//                    }
-//                }
-//            }
-
-//            return minDiff < double.MaxValue ? (bestDx, bestDy, minDiff) : null;
-//        }
-
-//        private double CalculateStabilityFromChange(double changePercentage, List<MovementVector> movements)
-//        {
-//            if (movements.Count == 0) return 100.0;
-
-//            // Stability is inversely proportional to change percentage and movement magnitude
-//            var avgMagnitude = movements.Average(m => m.Magnitude);
-//            var changeScore = Math.Max(0, 100 - changePercentage * 2);
-//            var movementScore = Math.Max(0, 100 - avgMagnitude * 10);
-
-//            return (changeScore + movementScore) / 2.0;
-//        }
-//        private CameraMovementType DetermineCameraMovementType(double avgX, double avgY, double magnitude)
-//        {
-//            if (magnitude < 0.5) return CameraMovementType.Stable;
-//            if (magnitude > 5.0) return CameraMovementType.Shaking;
-
-//            var absX = Math.Abs(avgX);
-//            var absY = Math.Abs(avgY);
-
-//            if (absX > absY * 2)
-//            {
-//                return absX > 2.0 ? CameraMovementType.FastPan : CameraMovementType.SlowPan;
-//            }
-//            else if (absY > absX * 2)
-//            {
-//                return absY > 2.0 ? CameraMovementType.FastTilt : CameraMovementType.SlowTilt;
-//            }
-//            else if (absX > 1.0 && absY > 1.0)
-//            {
-//                return CameraMovementType.Rotating;
-//            }
-
-//            return CameraMovementType.Stable;
-//        }
-
-//        private double CalculateStabilityScore(List<MovementVector> movements)
-//        {
-//            if (movements.Count == 0) return 100.0;
-
-//            var avgMagnitude = movements.Average(m => m.Magnitude);
-//            var consistency = CalculateMovementConsistency(movements);
-
-//            // Score based on low magnitude and high consistency
-//            var magnitudeScore = Math.Max(0, 100 - (avgMagnitude * 20));
-//            var consistencyScore = consistency * 100;
-
-//            return (magnitudeScore + consistencyScore) / 2.0;
-//        }
-
-//        private double CalculateMovementConsistency(List<MovementVector> movements)
-//        {
-//            if (movements.Count < 2) return 1.0;
-
-//            var directions = movements.Select(m => Math.Atan2(m.Y, m.X)).ToList();
-//            var variance = CalculateCircularVariance(directions);
-
-//            return 1.0 - variance;
-//        }
-
-//        private double CalculateCircularVariance(List<double> angles)
-//        {
-//            // Simplified circular variance calculation
-//            var sinSum = angles.Sum(a => Math.Sin(a));
-//            var cosSum = angles.Sum(a => Math.Cos(a));
-//            var meanResultant = Math.Sqrt(sinSum * sinSum + cosSum * cosSum) / angles.Count;
-
-//            return 1.0 - meanResultant;
-//        }
-
-//        private void AddCameraMovementStatus(Mat frame, DetectionStats stats)
-//        {
-//            var statusBarHeight = 30;
-//            var statusBar = new OpenCvSharp.Rect(0, 0, frame.Width, statusBarHeight);
-
-//            // Background
-//            Cv2.Rectangle(frame, statusBar, new Scalar(50, 50, 50), -1);
-
-//            // Camera movement status
-//            var statusText = $"Camera: {stats.CameraMovement} | Stability: {stats.CameraStability:0}%";
-//            var movementColor = GetCameraMovementColor(stats.CameraMovement, stats.CameraStability);
-
-//            Cv2.PutText(frame, statusText,
-//                new OpenCvSharp.Point(10, statusBarHeight - 10),
-//                HersheyFonts.HersheySimplex, 0.5, movementColor, 1);
-
-//            // Frame rate status
-//            var fpsText = $"FPS: Target={stats.TargetFPS:0} | Actual={stats.ActualProcessingFPS:0.0}";
-//            var fpsColor = stats.ActualProcessingFPS >= stats.TargetFPS * 0.8 ? Scalar.Green : Scalar.Yellow;
-
-//            Cv2.PutText(frame, fpsText,
-//                new OpenCvSharp.Point(frame.Width - 250, statusBarHeight - 10),
-//                HersheyFonts.HersheySimplex, 0.5, fpsColor, 1);
-//        }
-
-//        private Scalar GetCameraMovementColor(CameraMovementType movement, double stability)
-//        {
-//            if (stability > 80) return new Scalar(0, 255, 0);    // Green - stable
-//            if (stability > 60) return new Scalar(0, 255, 255);  // Yellow - moderate
-//            return new Scalar(0, 0, 255);                        // Red - unstable
-//        }
-
-//        // Include all your existing detection methods (DetectFacesAndEyes, DetectHands, etc.) here
-//        // Make sure they are copied exactly as you had them
-
-//        private void SafeFaceDetection(Mat processedFrame, Mat grayFrame, SessionData session,
-//    DetectionStats stats, List<string> notifications, List<string> logs,
-//    string cascadesPath, List<DetectedObject> detectedObjects)
-//        {
-//            try
-//            {
-//                var faceCascadePath = Path.Combine(cascadesPath, "haarcascade_frontalface_alt.xml");
-//                if (!File.Exists(faceCascadePath))
-//                {
-//                    logs.Add("Face cascade file not found");
-//                    return;
-//                }
-
-//                using (var faceCascade = new CascadeClassifier(faceCascadePath))
-//                {
-//                    if (faceCascade.Empty())
-//                    {
-//                        logs.Add("Failed to load face cascade classifier");
-//                        return;
-//                    }
-
-//                    var faces = faceCascade.DetectMultiScale(grayFrame, 1.1, 5, HaarDetectionTypes.ScaleImage, new Size(30, 30));
-//                    stats.FacesDetected = faces.Length;
-
-//                    foreach (var face in faces)
-//                    {
-//                        Cv2.Rectangle(processedFrame, face, Scalar.Red, 2);
-//                        Cv2.PutText(processedFrame, "Face",
-//                            new Point(face.X, face.Y - 10),
-//                            HersheyFonts.HersheySimplex, 0.5, Scalar.Red, 1);
-
-//                        detectedObjects.Add(new DetectedObject
-//                        {
-//                            Type = "Face",
-//                            X = face.X,
-//                            Y = face.Y,
-//                            Width = face.Width,
-//                            Height = face.Height,
-//                            Confidence = 0.85,
-//                            AdditionalInfo = $"Face at ({face.X}, {face.Y})"
-//                        });
-
-//                        // Safe eye detection
-//                        if (IsMonitoringEnabled(session.MonitoringConfig, "EyeDetection"))
-//                        {
-//                            SafeEyeDetection(processedFrame, grayFrame, face, stats, cascadesPath, detectedObjects);
-//                        }
-//                    }
-
-//                    if (faces.Length > 0 && !session.LastFaceState)
-//                    {
-//                        notifications.Add($"{faces.Length} face(s) detected");
-//                        logs.Add($"Face detection: {faces.Length} faces found");
-//                    }
-//                    session.LastFaceState = faces.Length > 0;
-//                }
-//            }
-//            catch (Exception ex)
-//            {
-//                logs.Add($"Face detection error: {ex.Message}");
-//            }
-//        }
-
-//        private void SafeEyeDetection(Mat processedFrame, Mat grayFrame, Rect face,
-//            DetectionStats stats, string cascadesPath, List<DetectedObject> detectedObjects)
-//        {
-//            try
-//            {
-//                var eyeCascadePath = Path.Combine(cascadesPath, "haarcascade_eye.xml");
-//                if (!File.Exists(eyeCascadePath)) return;
-
-//                using (var eyeCascade = new CascadeClassifier(eyeCascadePath))
-//                {
-//                    if (eyeCascade.Empty()) return;
-
-//                    var faceROI = grayFrame[face];
-//                    var eyes = eyeCascade.DetectMultiScale(faceROI);
-//                    stats.EyesDetected = eyes.Length;
-
-//                    foreach (var eye in eyes)
-//                    {
-//                        var eyeRect = new Rect(face.X + eye.X, face.Y + eye.Y, eye.Width, eye.Height);
-//                        Cv2.Rectangle(processedFrame, eyeRect, Scalar.Blue, 1);
-//                        Cv2.PutText(processedFrame, "Eye",
-//                            new Point(face.X + eye.X, face.Y + eye.Y - 5),
-//                            HersheyFonts.HersheySimplex, 0.3, Scalar.Blue, 1);
-
-//                        detectedObjects.Add(new DetectedObject
-//                        {
-//                            Type = "Eye",
-//                            X = face.X + eye.X,
-//                            Y = face.Y + eye.Y,
-//                            Width = eye.Width,
-//                            Height = eye.Height,
-//                            Confidence = 0.75,
-//                            AdditionalInfo = $"Eye in face"
-//                        });
-//                    }
-//                }
-//            }
-//            catch (Exception ex)
-//            {
-//                Debug.WriteLine($"Eye detection error: {ex.Message}");
-//            }
-//        }
-
-//        private void SafeMovementDetection(Mat currentFrame, Mat processedFrame, SessionData session,
-//            DetectionStats stats, List<string> notifications, List<string> logs, List<DetectedObject> detectedObjects)
-//        {
-//            try
-//            {
-//                var movementLevel = CalculateMovementLevel(currentFrame, session.PreviousFrame);
-//                stats.CurrentMovementLevel = movementLevel;
-//                stats.MovementDetected = movementLevel > session.Settings.MovementThreshold;
-
-//                if (stats.MovementDetected && !session.LastMovementState)
-//                {
-//                    notifications.Add($"Movement detected: {movementLevel:0.0}%");
-//                    logs.Add($"Movement started: {movementLevel:0.0}%");
-//                }
-//                else if (!stats.MovementDetected && session.LastMovementState)
-//                {
-//                    notifications.Add("Movement stopped");
-//                    logs.Add("Movement stopped");
-//                }
-//                session.LastMovementState = stats.MovementDetected;
-
-//                if (stats.MovementDetected)
-//                {
-//                    detectedObjects.Add(new DetectedObject
-//                    {
-//                        Type = "Movement",
-//                        Confidence = movementLevel / 100.0,
-//                        AdditionalInfo = $"Movement level: {movementLevel:0.0}%"
-//                    });
-//                }
-
-//                DrawMovementIndicator(processedFrame, movementLevel);
-//            }
-//            catch (Exception ex)
-//            {
-//                logs.Add($"Movement detection error: {ex.Message}");
-//            }
-//        }
-//        private void DetectFacesAndEyes(Mat processedFrame, Mat grayFrame, SessionData session, DetectionStats stats,
-//            List<string> notifications, List<string> logs, string cascadesPath, List<DetectedObject> detectedObjects)
-//        {
-//            var faceCascadePath = Path.Combine(cascadesPath, "haarcascade_frontalface_alt.xml");
-//            if (!File.Exists(faceCascadePath))
-//            {
-//                logs.Add("Face cascade file not found");
-//                return;
-//            }
-
-//            using (var faceCascade = new CascadeClassifier(faceCascadePath))
-//            {
-//                var faces = faceCascade.DetectMultiScale(grayFrame, 1.1, 5, HaarDetectionTypes.ScaleImage, new OpenCvSharp.Size(30, 30));
-//                stats.FacesDetected = faces.Length;
-
-//                foreach (var face in faces)
-//                {
-//                    Cv2.Rectangle(processedFrame, face, Scalar.Red, 2);
-//                    Cv2.PutText(processedFrame, "Face",
-//                        new OpenCvSharp.Point(face.X, face.Y - 10),
-//                        HersheyFonts.HersheySimplex, 0.5, Scalar.Red, 1);
-
-//                    // Add to detected objects
-//                    detectedObjects.Add(new DetectedObject
-//                    {
-//                        Type = "Face",
-//                        X = face.X,
-//                        Y = face.Y,
-//                        Width = face.Width,
-//                        Height = face.Height,
-//                        Confidence = 0.85,
-//                        AdditionalInfo = $"Face at ({face.X}, {face.Y})"
-//                    });
-
-//                    // Eye detection within face
-//                    if (IsMonitoringEnabled(session.MonitoringConfig, "EyeDetection"))
-//                    {
-//                        DetectEyesInFace(processedFrame, grayFrame, face, stats, cascadesPath, detectedObjects);
-//                    }
-//                }
-
-//                if (faces.Length > 0 && !session.LastFaceState)
-//                {
-//                    notifications.Add($"{faces.Length} face(s) detected");
-//                    logs.Add($"Face detection: {faces.Length} faces found");
-//                }
-//                session.LastFaceState = faces.Length > 0;
-//            }
-//        }
-
-//        private void DetectEyesInFace(Mat processedFrame, Mat grayFrame, OpenCvSharp.Rect face, DetectionStats stats,
-//            string cascadesPath, List<DetectedObject> detectedObjects)
-//        {
-//            var eyeCascadePath = Path.Combine(cascadesPath, "haarcascade_eye.xml");
-//            if (!File.Exists(eyeCascadePath)) return;
-
-//            using (var eyeCascade = new CascadeClassifier(eyeCascadePath))
-//            {
-//                var faceROI = grayFrame[face];
-//                var eyes = eyeCascade.DetectMultiScale(faceROI);
-//                stats.EyesDetected = eyes.Length;
-
-//                foreach (var eye in eyes)
-//                {
-//                    var eyeRect = new OpenCvSharp.Rect(face.X + eye.X, face.Y + eye.Y, eye.Width, eye.Height);
-//                    Cv2.Rectangle(processedFrame, eyeRect, Scalar.Blue, 1);
-//                    Cv2.PutText(processedFrame, "Eye",
-//                        new OpenCvSharp.Point(face.X + eye.X, face.Y + eye.Y - 5),
-//                        HersheyFonts.HersheySimplex, 0.3, Scalar.Blue, 1);
-
-//                    // Add to detected objects
-//                    detectedObjects.Add(new DetectedObject
-//                    {
-//                        Type = "Eye",
-//                        X = face.X + eye.X,
-//                        Y = face.Y + eye.Y,
-//                        Width = eye.Width,
-//                        Height = eye.Height,
-//                        Confidence = 0.75,
-//                        AdditionalInfo = $"Eye in face"
-//                    });
-//                }
-//            }
-//        }
-
-//        private void DetectHands(Mat processedFrame, Mat grayFrame, DetectionStats stats,
-//            List<string> notifications, List<string> logs, string cascadesPath, List<DetectedObject> detectedObjects)
-//        {
-//            var handCascadePath = Path.Combine(cascadesPath, "haarcascade_upperbody.xml");
-//            if (!File.Exists(handCascadePath))
-//            {
-//                // Try alternative hand cascade names
-//                handCascadePath = Path.Combine(cascadesPath, "haarcascade_fullbody.xml");
-//                if (!File.Exists(handCascadePath))
-//                {
-//                    logs.Add("Hand cascade file not found");
-//                    return;
-//                }
-//            }
-
-//            using (var handCascade = new CascadeClassifier(handCascadePath))
-//            {
-//                var hands = handCascade.DetectMultiScale(grayFrame, 1.1, 3, HaarDetectionTypes.ScaleImage, new OpenCvSharp.Size(30, 30));
-//                stats.HandsDetected = hands.Length;
-
-//                foreach (var hand in hands)
-//                {
-//                    Cv2.Rectangle(processedFrame, hand, Scalar.Green, 2);
-//                    Cv2.PutText(processedFrame, "Hand",
-//                        new OpenCvSharp.Point(hand.X, hand.Y - 10),
-//                        HersheyFonts.HersheySimplex, 0.5, Scalar.Green, 1);
-
-//                    // Add to detected objects
-//                    detectedObjects.Add(new DetectedObject
-//                    {
-//                        Type = "Hand",
-//                        X = hand.X,
-//                        Y = hand.Y,
-//                        Width = hand.Width,
-//                        Height = hand.Height,
-//                        Confidence = 0.70,
-//                        AdditionalInfo = $"Hand at ({hand.X}, {hand.Y})"
-//                    });
-//                }
-
-//                if (hands.Length > 0)
-//                {
-//                    notifications.Add($"{hands.Length} hand(s) detected");
-//                    logs.Add($"Hand detection: {hands.Length} hands found");
-//                }
-//            }
-//        }
-
-//        private void DetectMovement(Mat currentFrame, Mat processedFrame, SessionData session,
-//            DetectionStats stats, List<string> notifications, List<string> logs, List<DetectedObject> detectedObjects)
-//        {
-//            var movementLevel = CalculateMovementLevel(currentFrame, session.PreviousFrame);
-//            stats.CurrentMovementLevel = movementLevel;
-//            stats.MovementDetected = movementLevel > session.Settings.MovementThreshold;
-
-//            if (stats.MovementDetected && !session.LastMovementState)
-//            {
-//                notifications.Add($"Movement detected: {movementLevel:0.0}%");
-//                logs.Add($"Movement started: {movementLevel:0.0}%");
-//            }
-//            else if (!stats.MovementDetected && session.LastMovementState)
-//            {
-//                notifications.Add("Movement stopped");
-//                logs.Add("Movement stopped");
-//            }
-//            session.LastMovementState = stats.MovementDetected;
-
-//            // Add movement to detected objects
-//            if (stats.MovementDetected)
-//            {
-//                detectedObjects.Add(new DetectedObject
-//                {
-//                    Type = "Movement",
-//                    Confidence = movementLevel / 100.0,
-//                    AdditionalInfo = $"Movement level: {movementLevel:0.0}%"
-//                });
-//            }
-
-//            DrawMovementIndicator(processedFrame, movementLevel);
-//        }
-
-//        private double CalculateMovementLevel(Mat currentFrame, Mat previousFrame)
-//        {
-//            try
-//            {
-//                using (var diff = new Mat())
-//                using (var grayCurrent = new Mat())
-//                using (var grayPrevious = new Mat())
-//                {
-//                    Cv2.CvtColor(currentFrame, grayCurrent, ColorConversionCodes.BGR2GRAY);
-//                    Cv2.CvtColor(previousFrame, grayPrevious, ColorConversionCodes.BGR2GRAY);
-//                    Cv2.Absdiff(grayCurrent, grayPrevious, diff);
-//                    Cv2.Threshold(diff, diff, 25, 255, ThresholdTypes.Binary);
-
-//                    var nonZeroPixels = Cv2.CountNonZero(diff);
-//                    var totalPixels = diff.Width * diff.Height;
-//                    return (double)nonZeroPixels / totalPixels * 100.0;
-//                }
-//            }
-//            catch
-//            {
-//                return 0.0;
-//            }
-//        }
-
-//        private void DetectText(Mat frame, DetectionStats stats, List<string> notifications,
-//            List<string> logs, SessionData session, List<DetectedObject> detectedObjects)
-//        {
-//            try
-//            {
-//                using (var tesseractEngine = new TesseractEngine(_tessDataPath, "eng", EngineMode.Default))
-//                {
-//                    tesseractEngine.SetVariable("tessedit_char_whitelist",
-//                        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,!?()-+*/=@#$%&");
-
-//                    // Alternative approach if PixConverter doesn't work
-//                    using (var tempBitmap = BitmapConverter.ToBitmap(frame))
-//                    using (var tempStream = new MemoryStream())
-//                    {
-//                        tempBitmap.Save(tempStream, SDI.ImageFormat.Png);
-//                        using (var pix = Pix.LoadFromMemory(tempStream.ToArray()))
-//                        using (var page = tesseractEngine.Process(pix))
-//                        {
-//                            var text = page.GetText()?.Trim();
-//                            if (!string.IsNullOrEmpty(text) && text.Length > 3)
-//                            {
-//                                stats.TextDetected = true;
-//                                var displayText = text.Length > 30 ? text.Substring(0, 30) + "..." : text;
-//                                notifications.Add($"Text detected: {displayText}");
-//                                logs.Add($"OCR: {text}");
-//                                session.LastDetectedText = text;
-
-//                                // Add text to detected objects
-//                                detectedObjects.Add(new DetectedObject
-//                                {
-//                                    Type = "Text",
-//                                    Confidence = page.GetMeanConfidence() / 100.0,
-//                                    AdditionalInfo = $"Text: {displayText}"
-//                                });
-
-//                                Cv2.PutText(frame, "Text Detected",
-//                                    new OpenCvSharp.Point(10, frame.Height - 30),
-//                                    HersheyFonts.HersheySimplex, 0.6, Scalar.Yellow, 2);
-//                            }
-//                            else
-//                            {
-//                                stats.TextDetected = false;
-//                                session.LastDetectedText = null;
-//                            }
-//                        }
-//                    }
-//                }
-//            }
-//            catch (Exception ex)
-//            {
-//                logs.Add($"Text detection error: {ex.Message}");
-//            }
-//        }
-
-//        private void DrawMovementIndicator(Mat frame, double movementLevel)
-//        {
-//            int meterWidth = 200;
-//            int meterHeight = 20;
-//            int meterX = frame.Width - meterWidth - 10;
-//            int meterY = 10;
-
-//            // Background
-//            Cv2.Rectangle(frame, new OpenCvSharp.Rect(meterX, meterY, meterWidth, meterHeight), Scalar.DarkGray, -1);
-
-//            // Fill based on movement level
-//            int fillWidth = (int)(movementLevel / 100.0 * meterWidth);
-//            var color = GetMovementColor(movementLevel);
-//            Cv2.Rectangle(frame, new OpenCvSharp.Rect(meterX, meterY, fillWidth, meterHeight), color, -1);
-
-//            // Border
-//            Cv2.Rectangle(frame, new OpenCvSharp.Rect(meterX, meterY, meterWidth, meterHeight), Scalar.White, 1);
-
-//            // Label
-//            Cv2.PutText(frame, $"Movement: {movementLevel:0.0}%",
-//                new OpenCvSharp.Point(meterX, meterY + meterHeight + 15),
-//                HersheyFonts.HersheySimplex, 0.4, Scalar.White, 1);
-//        }
-
-//        private Scalar GetMovementColor(double movementLevel)
-//        {
-//            if (movementLevel < 10) return new Scalar(0, 255, 0);    // Green
-//            if (movementLevel < 30) return new Scalar(0, 255, 255);  // Yellow
-//            if (movementLevel < 50) return new Scalar(0, 165, 255);  // Orange
-//            return new Scalar(0, 0, 255);                            // Red
-//        }
-
-//        private void AddStatsOverlay(Mat frame, DetectionStats stats)
-//        {
-//            string[] statsText =
-//            {
-//                $"Faces: {stats.FacesDetected}",
-//                $"Eyes: {stats.EyesDetected}",
-//                $"Hands: {stats.HandsDetected}",
-//                $"Movement: {(stats.MovementDetected ? "Yes" : "No")}",
-//                $"Text: {(stats.TextDetected ? "Yes" : "No")}",
-//                $"FPS: {stats.CurrentFPS:0.0}",
-//                $"Frame: {stats.TotalFramesProcessed}"
-//            };
-
-//            int yOffset = 60; // Start below camera status bar
-//            foreach (var text in statsText)
-//            {
-//                Cv2.PutText(frame, text, new Point(10, yOffset),
-//                    HersheyFonts.HersheySimplex, 0.5, Scalar.White, 1);
-//                yOffset += 20;
-//            }
-//        }
-
-//        private void UpdateFPS(DetectionStats stats)
-//        {
-//            var now = DateTime.Now;
-//            if (stats.LastFPSCalculation == DateTime.MinValue)
-//            {
-//                stats.LastFPSCalculation = now;
-//                stats.FramesSinceLastCalculation = 0;
-//            }
-//            else if ((now - stats.LastFPSCalculation).TotalSeconds >= 1.0)
-//            {
-//                stats.CurrentFPS = stats.FramesSinceLastCalculation;
-//                stats.FramesSinceLastCalculation = 0;
-//                stats.LastFPSCalculation = now;
-//            }
-//            else
-//            {
-//                stats.FramesSinceLastCalculation++;
-//            }
-//        }
-
-//        // ... Rest of your interface implementation methods remain the same
-//        // Include all the GetMonitoringConfiguration, UpdateMonitoringConfiguration, etc. methods
-
-//        private void InitializeSessionIfNotExists(string sessionId)
-//        {
-//            _sessions.AddOrUpdate(sessionId,
-//                id => new SessionData
-//                {
-//                    Stats = new DetectionStats(),
-//                    Settings = new DetectionSettings(),
-//                    MonitoringConfig = new MonitoringConfiguration
-//                    {
-//                        SessionId = id,
-//                        EnabledOptions = new List<MonitoringOption>(_availableMonitoringOptions)
-//                    },
-//                    SessionId = id,
-//                    LastDetectedText = null,
-//                    ProcessingTimes = new Queue<double>()
-//                },
-//                (id, existing) => existing);
-//        }
-
-//        public DetectionStats GetSessionStats(string sessionId)
-//        {
-//            return _sessions.TryGetValue(sessionId, out var session)
-//                ? session.Stats.Clone()
-//                : new DetectionStats();
-//        }
-
-//        public SessionAnalytics GetSessionAnalytics(string sessionId)
-//        {
-//            if (_sessions.TryGetValue(sessionId, out var session))
-//            {
-//                return new SessionAnalytics
-//                {
-//                    SessionId = sessionId,
-//                    Stats = session.Stats.Clone(),
-//                    SessionDuration = DateTime.Now - session.CreatedAt,
-//                    StartedAt = session.CreatedAt,
-//                    LastActivity = session.Stats.LastUpdate,
-//                    RecentNotifications = new List<string>()
-//                };
-//            }
-//            return null;
-//        }
-
-//        public void UpdateSessionSettings(string sessionId, DetectionSettings settings)
-//        {
-//            if (_sessions.TryGetValue(sessionId, out var session))
-//            {
-//                session.Settings = settings ?? new DetectionSettings();
-//            }
-//        }
-
-//        public void InitializeSession(string sessionId)
-//        {
-//            InitializeSessionIfNotExists(sessionId);
-//        }
-
-//        public void CleanupSession(string sessionId)
-//        {
-//            if (_sessions.TryRemove(sessionId, out var session))
-//            {
-//                session.PreviousFrame?.Dispose();
-//                session.PreviousGrayFrame?.Dispose();
-//            }
-//        }
-
-//        public List<string> GetActiveSessions()
-//        {
-//            return _sessions.Keys.ToList();
-//        }
-
-//        public MonitoringConfiguration GetMonitoringConfiguration(string sessionId)
-//        {
-//            if (_sessions.TryGetValue(sessionId, out var session))
-//            {
-//                return session.MonitoringConfig;
-//            }
-//            return new MonitoringConfiguration();
-//        }
-
-//        public void UpdateMonitoringConfiguration(string sessionId, MonitoringConfiguration config)
-//        {
-//            if (_sessions.TryGetValue(sessionId, out var session))
-//            {
-//                session.MonitoringConfig = config;
-
-//                // Update settings based on monitoring configuration
-//                foreach (var option in config.EnabledOptions)
-//                {
-//                    switch (option.Name)
-//                    {
-//                        case "FaceDetection":
-//                            session.Settings.EnableFaceDetection = option.IsEnabled;
-//                            break;
-//                        case "EyeDetection":
-//                            session.Settings.EnableEyeDetection = option.IsEnabled;
-//                            break;
-//                        case "HandDetection":
-//                            session.Settings.EnableHandDetection = option.IsEnabled;
-//                            break;
-//                        case "MovementDetection":
-//                            session.Settings.EnableMovementDetection = option.IsEnabled;
-//                            break;
-//                        case "TextDetection":
-//                            session.Settings.EnableTextDetection = option.IsEnabled;
-//                            break;
-//                        case "CameraMovementAnalysis":
-//                            session.Settings.EnableCameraMovementAnalysis = option.IsEnabled;
-//                            break;
-//                    }
-//                }
-
-//                // Update frame rate control
-//                session.Settings.TargetFPS = config.FrameRateControl.TargetFPS;
-//                session.Settings.EnableFrameRateControl = config.FrameRateControl.AdaptiveMode;
-//                session.FramesToSkip = config.FrameRateControl.FrameSkip;
-//            }
-//        }
-
-//        public FrameRateInfo GetFrameRateInfo(string sessionId)
-//        {
-//            if (_sessions.TryGetValue(sessionId, out var session))
-//            {
-//                var stats = session.Stats;
-//                return new FrameRateInfo
-//                {
-//                    TargetFPS = stats.TargetFPS,
-//                    ActualFPS = stats.ActualProcessingFPS,
-//                    ProcessingTimeMs = session.ProcessingTimes.Any() ? session.ProcessingTimes.Average() : 0,
-//                    IsOptimal = stats.ActualProcessingFPS >= stats.TargetFPS * 0.8,
-//                    Recommendation = GetFrameRateRecommendation(stats)
-//                };
-//            }
-//            return new FrameRateInfo();
-//        }
-
-//        private string GetFrameRateRecommendation(DetectionStats stats)
-//        {
-//            if (stats.ActualProcessingFPS >= stats.TargetFPS * 0.9)
-//                return "Optimal performance";
-//            if (stats.ActualProcessingFPS >= stats.TargetFPS * 0.7)
-//                return "Good performance";
-//            if (stats.ActualProcessingFPS >= stats.TargetFPS * 0.5)
-//                return "Consider reducing target FPS or disabling some features";
-//            return "Reduce target FPS or disable heavy processing features";
-//        }
-
-//        public CameraMovementAnalysis GetCameraMovementAnalysis(string sessionId)
-//        {
-//            if (_sessions.TryGetValue(sessionId, out var session))
-//            {
-//                var stats = session.Stats;
-//                return new CameraMovementAnalysis
-//                {
-//                    MovementType = stats.CameraMovement,
-//                    StabilityScore = stats.CameraStability,
-//                    HorizontalMovement = stats.RecentMovements.Average(m => m.X),
-//                    VerticalMovement = stats.RecentMovements.Average(m => m.Y),
-//                    ZoomLevel = 0,
-//                    Status = GetCameraStatus(stats.CameraStability),
-//                    Recommendation = GetCameraRecommendation(stats.CameraMovement, stats.CameraStability)
-//                };
-//            }
-//            return new CameraMovementAnalysis();
-//        }
-
-//        private string GetCameraStatus(double stability)
-//        {
-//            if (stability > 80) return "Very Stable";
-//            if (stability > 60) return "Stable";
-//            if (stability > 40) return "Moderate";
-//            if (stability > 20) return "Unstable";
-//            return "Very Unstable";
-//        }
-
-//        private string GetCameraRecommendation(CameraMovementType movement, double stability)
-//        {
-//            if (stability < 40) return "Use tripod or stabilize camera";
-//            if (movement == CameraMovementType.Shaking) return "Reduce camera shake";
-//            if (movement == CameraMovementType.FastPan) return "Slow down panning movements";
-//            return "Camera movement is good";
-//        }
-
-//        public List<MonitoringOption> GetAvailableMonitoringOptions()
-//        {
-//            return new List<MonitoringOption>(_availableMonitoringOptions);
-//        }
-
-//        public void SetTargetFPS(string sessionId, double targetFPS)
-//        {
-//            if (_sessions.TryGetValue(sessionId, out var session))
-//            {
-//                session.Settings.TargetFPS = Math.Max(1, Math.Min(60, targetFPS));
-//                session.Stats.TargetFPS = session.Settings.TargetFPS;
-//            }
-//        }
-
-//        public void EnableMonitoringOption(string sessionId, string optionName, bool enable)
-//        {
-//            if (_sessions.TryGetValue(sessionId, out var session))
-//            {
-//                var option = session.MonitoringConfig.EnabledOptions.FirstOrDefault(o => o.Name == optionName);
-//                if (option != null)
-//                {
-//                    option.IsEnabled = enable;
-//                }
-
-//                UpdateMonitoringConfiguration(sessionId, session.MonitoringConfig);
-//            }
-//        }
-
-//        public void Dispose()
-//        {
-//            Dispose(true);
-//            GC.SuppressFinalize(this);
-//        }
-
-//        protected virtual void Dispose(bool disposing)
-//        {
-//            if (!_disposed)
-//            {
-//                if (disposing)
-//                {
-//                    foreach (var session in _sessions.Values)
-//                    {
-//                        session.PreviousFrame?.Dispose();
-//                        session.PreviousGrayFrame?.Dispose();
-//                    }
-//                    _sessions.Clear();
-//                }
-//                _disposed = true;
-//            }
-//        }
-//    }
-//}
