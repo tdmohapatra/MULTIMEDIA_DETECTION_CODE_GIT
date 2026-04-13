@@ -1,0 +1,551 @@
+@{
+    ViewData["Title"] = "Realtime Detection Client";
+    var apiBaseUrl = (ViewData["ApiBaseUrl"]?.ToString() ?? "http://localhost:5078").TrimEnd('/');
+}
+
+<style>
+    .live-shell {
+        background: linear-gradient(145deg, #0b1220, #10192d);
+        color: #d9e5ff;
+        border: 1px solid #1f2b46;
+    }
+
+    .live-stack {
+        position: relative;
+        width: 100%;
+        border-radius: 12px;
+        overflow: hidden;
+        border: 1px solid #2b3b61;
+        background: #050914;
+        min-height: 360px;
+    }
+
+    .live-video,
+    .live-overlay {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+    }
+
+    .live-overlay {
+        pointer-events: none;
+    }
+
+    .hud {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 10px;
+    }
+
+    .hud-badge {
+        font-size: 12px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: #16213a;
+        border: 1px solid #28406d;
+    }
+
+    .ops-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+    }
+</style>
+
+<div class="row g-3">
+    <div class="col-lg-8">
+        <div class="live-stack">
+            <video id="video" autoplay playsinline class="live-video"></video>
+            <canvas id="overlay" class="live-overlay"></canvas>
+        </div>
+        <canvas id="captureCanvas" class="d-none"></canvas>
+        <div class="hud">
+            <span class="hud-badge">Faces: <span id="facesCount">0</span></span>
+            <span class="hud-badge">Hands: <span id="handsCount">0</span></span>
+            <span class="hud-badge">Eyes: <span id="eyesCount">0</span></span>
+            <span class="hud-badge">Movement: <span id="movementPct">0</span>%</span>
+            <span class="hud-badge">Gesture: <span id="gestureName">-</span></span>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card live-shell">
+            <div class="card-body">
+                <h5>Live Gesture Tracker</h5>
+                <p class="text-secondary mb-2">UI Port: 5080, API Port: 5078</p>
+                <div class="mb-2">
+                    <label class="form-label">API Base Url</label>
+                    <input id="apiBaseUrl" class="form-control" value="@apiBaseUrl" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Session Id</label>
+                    <input id="sessionId" class="form-control" />
+                </div>
+                <div class="d-flex gap-2 mb-2">
+                    <button id="startBtn" class="btn btn-primary btn-sm">Start</button>
+                    <button id="stopBtn" class="btn btn-secondary btn-sm">Stop</button>
+                    <button id="calibrateBtn" class="btn btn-outline-primary btn-sm">Calibrate</button>
+                </div>
+                <div class="ops-grid mb-2">
+                    <button id="recordTrailBtn" class="btn btn-sm btn-warning">Start Trail Rec</button>
+                    <button id="snapshotBtn" class="btn btn-sm btn-success">Snapshot PNG</button>
+                </div>
+                <div class="mb-2">
+                    <button id="downloadReportBtn" class="btn btn-sm btn-info w-100">Download JSON Session Report</button>
+                </div>
+                <div class="mb-2">
+                    <button id="downloadCsvBtn" class="btn btn-sm btn-outline-info w-100">Download CSV Timeline</button>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Confidence Threshold (%)</label>
+                    <input id="threshold" type="range" min="10" max="95" value="60" class="form-range" />
+                    <small id="thresholdValue">60%</small>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Trail Length (sec)</label>
+                    <input id="trailSeconds" type="range" min="2" max="30" value="10" class="form-range" />
+                    <small><span id="trailSecondsValue">10</span>s</small>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Overlay Controls</label>
+                    <div class="d-flex flex-wrap gap-2">
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="checkbox" id="showFaces" checked>
+                            <label class="form-check-label" for="showFaces">Faces</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="checkbox" id="showHands" checked>
+                            <label class="form-check-label" for="showHands">Hands</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="checkbox" id="showTrail" checked>
+                            <label class="form-check-label" for="showTrail">Trail</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="checkbox" id="showLabels" checked>
+                            <label class="form-check-label" for="showLabels">Labels</label>
+                        </div>
+                    </div>
+                </div>
+                <pre id="output" class="small bg-black text-info p-2 border rounded" style="height:280px; overflow:auto;"></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+(() => {
+    const video = document.getElementById('video');
+    const overlay = document.getElementById('overlay');
+    const captureCanvas = document.getElementById('captureCanvas');
+    const output = document.getElementById('output');
+    const sessionIdInput = document.getElementById('sessionId');
+    const apiBaseUrlInput = document.getElementById('apiBaseUrl');
+    const thresholdInput = document.getElementById('threshold');
+    const thresholdValue = document.getElementById('thresholdValue');
+    const facesCount = document.getElementById('facesCount');
+    const handsCount = document.getElementById('handsCount');
+    const eyesCount = document.getElementById('eyesCount');
+    const movementPct = document.getElementById('movementPct');
+    const gestureName = document.getElementById('gestureName');
+    const showFaces = document.getElementById('showFaces');
+    const showHands = document.getElementById('showHands');
+    const showTrail = document.getElementById('showTrail');
+    const showLabels = document.getElementById('showLabels');
+    const recordTrailBtn = document.getElementById('recordTrailBtn');
+    const snapshotBtn = document.getElementById('snapshotBtn');
+    const downloadReportBtn = document.getElementById('downloadReportBtn');
+    const downloadCsvBtn = document.getElementById('downloadCsvBtn');
+    const trailSecondsInput = document.getElementById('trailSeconds');
+    const trailSecondsValue = document.getElementById('trailSecondsValue');
+    let stream = null;
+    let frame = 0;
+    let inFlight = false;
+    let lastFrameAt = 0;
+    let rafHandle = null;
+    const handTrail = [];
+    let isRecordingTrail = false;
+    const sessionStatsHistory = [];
+    const gestureCounts = {};
+    const sessionStartedAt = new Date().toISOString();
+
+    sessionIdInput.value = `ui-${crypto.randomUUID().slice(0, 8)}`;
+    trailSecondsValue.textContent = trailSecondsInput.value;
+
+    thresholdInput.addEventListener('input', async () => {
+        thresholdValue.textContent = `${thresholdInput.value}%`;
+        await postSettings();
+    });
+    trailSecondsInput.addEventListener('input', () => {
+        trailSecondsValue.textContent = trailSecondsInput.value;
+    });
+
+    document.getElementById('startBtn').addEventListener('click', start);
+    document.getElementById('stopBtn').addEventListener('click', stop);
+    document.getElementById('calibrateBtn').addEventListener('click', calibrate);
+    recordTrailBtn.addEventListener('click', toggleTrailRecording);
+    snapshotBtn.addEventListener('click', saveSnapshot);
+    downloadReportBtn.addEventListener('click', downloadSessionReport);
+    downloadCsvBtn.addEventListener('click', downloadCsvTimeline);
+
+    function baseUrl() { return apiBaseUrlInput.value.replace(/\/$/, ''); }
+    function sid() { return sessionIdInput.value.trim(); }
+
+    async function start() {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        video.srcObject = stream;
+        await fetch(`${baseUrl()}/api/detection/initialize/${encodeURIComponent(sid())}`, { method: 'POST' });
+        await postSettings();
+        runLoop();
+    }
+
+    async function stop() {
+        if (rafHandle) cancelAnimationFrame(rafHandle);
+        rafHandle = null;
+        if (stream) {
+            stream.getTracks().forEach(t => t.stop());
+            stream = null;
+        }
+        await fetch(`${baseUrl()}/api/detection/cleanup/${encodeURIComponent(sid())}`, { method: 'POST' });
+    }
+
+    function toggleTrailRecording() {
+        isRecordingTrail = !isRecordingTrail;
+        recordTrailBtn.textContent = isRecordingTrail ? "Stop Trail Rec" : "Start Trail Rec";
+        recordTrailBtn.classList.toggle("btn-warning", !isRecordingTrail);
+        recordTrailBtn.classList.toggle("btn-danger", isRecordingTrail);
+        if (!isRecordingTrail) {
+            handTrail.length = 0;
+        }
+    }
+
+    function saveSnapshot() {
+        if (!overlay.width || !overlay.height) return;
+        const exportCanvas = document.createElement("canvas");
+        exportCanvas.width = overlay.width;
+        exportCanvas.height = overlay.height;
+        const exportCtx = exportCanvas.getContext("2d");
+        exportCtx.drawImage(video, 0, 0, overlay.width, overlay.height);
+        exportCtx.drawImage(overlay, 0, 0);
+        const url = exportCanvas.toDataURL("image/png");
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `gesture_snapshot_${new Date().toISOString().replace(/[:.]/g, "-")}.png`;
+        a.click();
+    }
+
+    function downloadSessionReport() {
+        const report = {
+            sessionId: sid(),
+            startedAt: sessionStartedAt,
+            exportedAt: new Date().toISOString(),
+            apiBaseUrl: baseUrl(),
+            settings: {
+                confidenceThresholdPercent: Number(thresholdInput.value),
+                trailSeconds: Number(trailSecondsInput.value),
+                overlays: {
+                    faces: showFaces.checked,
+                    hands: showHands.checked,
+                    trail: showTrail.checked,
+                    labels: showLabels.checked
+                }
+            },
+            summary: {
+                totalFramesCaptured: frame,
+                timelinePoints: sessionStatsHistory.length,
+                gesturesDetected: gestureCounts
+            },
+            timeline: sessionStatsHistory
+        };
+
+        const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `session_report_${sid()}_${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    function downloadCsvTimeline() {
+        const rows = [["timestamp","frame","faces","hands","eyes","movement","fps","gesture"]];
+        sessionStatsHistory.forEach(item => {
+            rows.push([
+                item.at,
+                item.frameNumber,
+                item.faces,
+                item.hands,
+                item.eyes,
+                item.movement,
+                item.fps,
+                item.gesture || ""
+            ]);
+        });
+
+        const csv = rows.map(r => r.map(value => {
+            const s = String(value ?? "");
+            return s.includes(",") || s.includes("\"") ? `"${s.replace(/"/g, "\"\"")}"` : s;
+        }).join(",")).join("\n");
+
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `session_timeline_${sid()}_${new Date().toISOString().replace(/[:.]/g, "-")}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    async function calibrate() {
+        const r = await fetch(`${baseUrl()}/api/detection/calibrate/${encodeURIComponent(sid())}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ frameCount: 45 })
+        });
+        output.textContent = JSON.stringify(await r.json(), null, 2);
+    }
+
+    async function postSettings() {
+        const t = Number(thresholdInput.value) / 100;
+        await fetch(`${baseUrl()}/api/detection/settings/${encodeURIComponent(sid())}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                targetFPS: 20,
+                movementThreshold: 25,
+                faceConfidenceThreshold: t,
+                handConfidenceThreshold: t,
+                enableFaceDetection: true,
+                enableEyeDetection: true,
+                enableHandDetection: true,
+                enableMovementDetection: true,
+                enableTextDetection: true,
+                cameraStabilityThreshold: 60
+            })
+        });
+    }
+
+    function runLoop() {
+        const targetIntervalMs = 1000 / 8;
+        const tick = async () => {
+            if (!stream) return;
+            const now = performance.now();
+            if (!inFlight && (now - lastFrameAt) >= targetIntervalMs) {
+                inFlight = true;
+                lastFrameAt = now;
+                try {
+                    await processFrame();
+                } finally {
+                    inFlight = false;
+                }
+            }
+            rafHandle = requestAnimationFrame(tick);
+        };
+        rafHandle = requestAnimationFrame(tick);
+    }
+
+    async function processFrame() {
+        if (!stream) return;
+        const width = video.videoWidth || 640;
+        const height = video.videoHeight || 360;
+        captureCanvas.width = width;
+        captureCanvas.height = height;
+        overlay.width = width;
+        overlay.height = height;
+
+        const captureCtx = captureCanvas.getContext('2d');
+        captureCtx.drawImage(video, 0, 0, width, height);
+        const imageData = captureCanvas.toDataURL('image/jpeg', 0.7);
+
+        const r = await fetch(`${baseUrl()}/api/detection/process-frame`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                sessionId: sid(),
+                frameNumber: ++frame,
+                timestamp: new Date().toISOString(),
+                imageData
+            })
+        });
+
+        const data = await r.json();
+        drawOverlay(data);
+        updateSessionAnalytics(data);
+        output.textContent = JSON.stringify({
+            success: data.success,
+            faces: data.stats?.facesDetected,
+            eyes: data.stats?.eyesDetected,
+            hands: data.stats?.handsDetected,
+            movement: data.stats?.currentMovementLevel,
+            calibration: data.calibration
+        }, null, 2);
+    }
+
+    function updateSessionAnalytics(data) {
+        const stats = data?.stats || {};
+        const detections = data?.detections || {};
+        const dominantGesture = detections?.hands?.[0]?.gesture?.type || data?.handGestures?.[0]?.type || null;
+
+        if (dominantGesture) {
+            gestureCounts[dominantGesture] = (gestureCounts[dominantGesture] || 0) + 1;
+        }
+
+        sessionStatsHistory.push({
+            at: new Date().toISOString(),
+            frameNumber: frame,
+            faces: stats.facesDetected ?? 0,
+            hands: stats.handsDetected ?? 0,
+            eyes: stats.eyesDetected ?? 0,
+            movement: stats.currentMovementLevel ?? 0,
+            fps: stats.currentFPS ?? 0,
+            gesture: dominantGesture
+        });
+
+        if (sessionStatsHistory.length > 2000) {
+            sessionStatsHistory.shift();
+        }
+    }
+
+    function drawOverlay(data) {
+        const ctx = overlay.getContext('2d');
+        ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+        const detections = data?.detections || {};
+        const faces = detections.faces || [];
+        const hands = detections.hands || [];
+        const eyes = detections.eyes || [];
+        const movement = Number(data?.stats?.currentMovementLevel || 0);
+
+        facesCount.textContent = faces.length;
+        handsCount.textContent = hands.length;
+        eyesCount.textContent = eyes.length;
+        movementPct.textContent = movement.toFixed(1);
+
+        const dominantGesture = hands[0]?.gesture?.type || data?.handGestures?.[0]?.type || "-";
+        gestureName.textContent = dominantGesture;
+
+        if (showFaces.checked) {
+            faces.forEach(face => {
+                drawBox(ctx, face.bBox, "#24d8ff", `Face ${(face.confidence * 100).toFixed(0)}%`);
+                if (showLabels.checked && face.expression?.dominantEmotion) {
+                    drawTag(ctx, face.bBox.x, face.bBox.y - 20, `Mood: ${face.expression.dominantEmotion}`);
+                }
+            });
+        }
+
+        if (showHands.checked) {
+            hands.forEach(hand => {
+                const label = hand.gesture?.type
+                    ? `${hand.gesture.type} ${(hand.gesture.confidence * 100).toFixed(0)}%`
+                    : `Hand ${(hand.confidence * 100).toFixed(0)}%`;
+                drawBox(ctx, hand.bBox, "#00ff9d", label);
+
+                drawHandSkeleton(ctx, hand, "#7fffd4");
+
+                const center = boxCenter(hand.bBox);
+                if (isRecordingTrail) {
+                    handTrail.push({ ...center, t: Date.now() });
+                } else {
+                    handTrail.push({ ...center, t: Date.now() });
+                }
+            });
+        }
+
+        const trailWindowMs = Number(trailSecondsInput.value || 10) * 1000;
+        const cutoff = Date.now() - trailWindowMs;
+        while (handTrail.length && handTrail[0].t < cutoff) {
+            handTrail.shift();
+        }
+
+        if (showTrail.checked) {
+            drawTrail(ctx, handTrail, "#00ff9d");
+        }
+
+        if (showFaces.checked || showHands.checked) {
+            eyes.forEach(eye => {
+                drawBox(ctx, eye.bBox, "#ffd54a", eye.gaze || "Eye");
+            });
+        }
+    }
+
+    function drawBox(ctx, b, color, label) {
+        if (!b) return;
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = color;
+        ctx.strokeRect(b.x, b.y, b.width, b.height);
+        if (showLabels.checked) {
+            drawTag(ctx, b.x, b.y - 6, label, color);
+        }
+    }
+
+    function drawTag(ctx, x, y, text, color = "#16213a") {
+        ctx.font = "12px Segoe UI";
+        const pad = 6;
+        const tw = ctx.measureText(text).width;
+        const tx = Math.max(0, x);
+        const ty = Math.max(14, y);
+        ctx.fillStyle = color;
+        ctx.fillRect(tx, ty - 12, tw + pad * 2, 14);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText(text, tx + pad, ty - 2);
+    }
+
+    function drawTrail(ctx, points, color) {
+        if (points.length < 2) return;
+        ctx.beginPath();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length; i++) {
+            ctx.lineTo(points[i].x, points[i].y);
+        }
+        ctx.stroke();
+    }
+
+    function drawHandSkeleton(ctx, hand, color) {
+        const points = hand?.landmarks || hand?.gesture?.keyPoints || [];
+        if (!Array.isArray(points) || points.length < 2) return;
+
+        const normalized = points
+            .filter(p => typeof p.x === "number" && typeof p.y === "number")
+            .map(p => ({ x: p.x, y: p.y }));
+
+        if (normalized.length < 2) return;
+
+        const scaled = normalized.map(p => ({
+            x: normalizeToPixels(p.x, hand.bBox.x, hand.bBox.width, overlay.width),
+            y: normalizeToPixels(p.y, hand.bBox.y, hand.bBox.height, overlay.height)
+        }));
+
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(scaled[0].x, scaled[0].y);
+        for (let i = 1; i < scaled.length; i++) {
+            ctx.lineTo(scaled[i].x, scaled[i].y);
+        }
+        ctx.stroke();
+
+        ctx.fillStyle = color;
+        scaled.forEach(p => {
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 2.2, 0, Math.PI * 2);
+            ctx.fill();
+        });
+    }
+
+    function normalizeToPixels(value, boxStart, boxSize, maxSize) {
+        if (value >= 0 && value <= 1) {
+            return boxStart + value * boxSize;
+        }
+        return Math.max(0, Math.min(maxSize, value));
+    }
+
+    function boxCenter(b) {
+        return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+    }
+})();
+</script>
+}
