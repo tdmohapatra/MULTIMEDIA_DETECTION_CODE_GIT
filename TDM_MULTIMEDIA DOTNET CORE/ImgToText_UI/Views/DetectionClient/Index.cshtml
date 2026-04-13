@@ -99,6 +99,7 @@
             <span class="hud-badge">Gesture: <span id="gestureName">-</span></span>
             <span class="hud-badge">Emotion: <span id="stableEmotion">Neutral</span></span>
             <span class="hud-badge">EyeState: <span id="oneEyeStatus">BothOpen</span></span>
+            <span class="hud-badge">WS: <span id="wsState">Disconnected</span></span>
         </div>
     </div>
     <div class="col-lg-4">
@@ -167,6 +168,7 @@
 </div>
 
 @section Scripts {
+<script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.7/signalr.min.js"></script>
 <script>
 (() => {
     const video = document.getElementById('video');
@@ -184,6 +186,7 @@
     const gestureName = document.getElementById('gestureName');
     const stableEmotion = document.getElementById('stableEmotion');
     const oneEyeStatus = document.getElementById('oneEyeStatus');
+    const wsState = document.getElementById('wsState');
     const showFaces = document.getElementById('showFaces');
     const showHands = document.getElementById('showHands');
     const showTrail = document.getElementById('showTrail');
@@ -199,6 +202,8 @@
     let inFlight = false;
     let lastFrameAt = 0;
     let rafHandle = null;
+    let hubConnection = null;
+    let useWebSocketStreaming = false;
     const handTrail = [];
     let isRecordingTrail = false;
     const faceState = new Map();
@@ -235,6 +240,7 @@
         video.srcObject = stream;
         await fetch(`${baseUrl()}/api/detection/initialize/${encodeURIComponent(sid())}`, { method: 'POST' });
         await postSettings();
+        await connectHub();
         runLoop();
     }
 
@@ -244,6 +250,17 @@
         if (stream) {
             stream.getTracks().forEach(t => t.stop());
             stream = null;
+        }
+        if (hubConnection) {
+            try {
+                await hubConnection.invoke('LeaveSession', sid());
+                await hubConnection.stop();
+            } catch (e) {
+                console.warn('Hub stop failed', e);
+            }
+            hubConnection = null;
+            wsState.textContent = 'Disconnected';
+            useWebSocketStreaming = false;
         }
         await fetch(`${baseUrl()}/api/detection/cleanup/${encodeURIComponent(sid())}`, { method: 'POST' });
     }
@@ -359,13 +376,15 @@
                 enableHandDetection: true,
                 enableMovementDetection: true,
                 enableTextDetection: true,
-                cameraStabilityThreshold: 60
+                cameraStabilityThreshold: 60,
+                enableWebSocketStreaming: true,
+                maxTrackedHands: 2
             })
         });
     }
 
     function runLoop() {
-        const targetIntervalMs = 1000 / 8;
+        const targetIntervalMs = 1000 / 20;
         const tick = async () => {
             if (!stream) return;
             const now = performance.now();
@@ -394,26 +413,42 @@
 
         const captureCtx = captureCanvas.getContext('2d');
         captureCtx.drawImage(video, 0, 0, width, height);
-        const imageData = captureCanvas.toDataURL('image/jpeg', 0.7);
+        const imageData = captureCanvas.toDataURL('image/jpeg', 0.6);
 
-        const r = await fetch(`${baseUrl()}/api/detection/process-frame`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                sessionId: sid(),
-                frameNumber: ++frame,
-                timestamp: Date.now(),
-                imageData
-            })
-        });
+        const payload = {
+            sessionId: sid(),
+            frameNumber: ++frame,
+            timestamp: Date.now(),
+            imageData
+        };
 
-        if (!r.ok) {
-            const errorText = await r.text();
-            output.textContent = `API error ${r.status}: ${errorText}`;
-            return;
+        let data = null;
+        if (useWebSocketStreaming && hubConnection) {
+            try {
+                data = await hubConnection.invoke('ProcessFrame', payload);
+            } catch (wsError) {
+                console.warn('WebSocket frame failed, falling back to HTTP.', wsError);
+                useWebSocketStreaming = false;
+                wsState.textContent = 'Fallback HTTP';
+            }
         }
 
-        const data = await r.json();
+        if (!data) {
+            const r = await fetch(`${baseUrl()}/api/detection/process-frame`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!r.ok) {
+                const errorText = await r.text();
+                output.textContent = `API error ${r.status}: ${errorText}`;
+                return;
+            }
+
+            data = await r.json();
+        }
+
         drawOverlay(data);
         updateSessionAnalytics(data);
         output.textContent = JSON.stringify({
@@ -424,6 +459,41 @@
             movement: data.stats?.currentMovementLevel,
             calibration: data.calibration
         }, null, 2);
+    }
+
+    async function connectHub() {
+        if (!window.signalR || hubConnection) {
+            return;
+        }
+
+        const hubUrl = `${baseUrl()}/detectionHub`;
+        hubConnection = new signalR.HubConnectionBuilder()
+            .withUrl(hubUrl)
+            .withAutomaticReconnect()
+            .build();
+
+        hubConnection.on('detectionUpdate', (payload) => {
+            if (!payload || payload.sessionId !== sid()) {
+                return;
+            }
+            wsState.textContent = `Live (${new Date(payload.timestamp).toLocaleTimeString()})`;
+        });
+
+        hubConnection.onreconnecting(() => wsState.textContent = 'Reconnecting');
+        hubConnection.onreconnected(() => { wsState.textContent = 'Connected'; useWebSocketStreaming = true; });
+        hubConnection.onclose(() => { wsState.textContent = 'Disconnected'; useWebSocketStreaming = false; });
+
+        wsState.textContent = 'Connecting';
+        try {
+            await hubConnection.start();
+            await hubConnection.invoke('JoinSession', sid());
+            wsState.textContent = 'Connected';
+            useWebSocketStreaming = true;
+        } catch (err) {
+            console.warn('SignalR connection unavailable, using HTTP mode.', err);
+            wsState.textContent = 'HTTP mode';
+            useWebSocketStreaming = false;
+        }
     }
 
     function updateSessionAnalytics(data) {

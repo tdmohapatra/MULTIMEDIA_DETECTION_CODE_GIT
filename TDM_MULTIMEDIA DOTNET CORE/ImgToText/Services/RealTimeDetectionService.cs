@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
 using STAR_MUTIMEDIA.Models;
+using STAR_MUTIMEDIA.Services.Plugins;
 using Tesseract;
 using SD = System.Drawing;
 using SDI = System.Drawing.Imaging;
@@ -33,6 +34,7 @@ namespace STAR_MUTIMEDIA.Services
         private readonly CascadeClassifier _smile;
         private readonly CascadeClassifier _fullbody;
         private readonly CascadeClassifier _LicencePlate;
+        private readonly List<IDetectionPlugin> _detectionPlugins;
 
         public RealTimeDetectionService(string tessDataPath)
         {
@@ -55,6 +57,12 @@ namespace STAR_MUTIMEDIA.Services
             _smile = LoadCascadeClassifier(Path.Combine(cascadesPath, "haarcascade_smile.xml"));
             _fullbody = LoadCascadeClassifier(Path.Combine(cascadesPath, "haarcascade_fullbody.xml"));
             _LicencePlate = LoadCascadeClassifier(Path.Combine(cascadesPath, "haarcascade_license_plate_rus_16stages.xml"));
+            _detectionPlugins = new List<IDetectionPlugin>
+            {
+                new LowLightDetectionPlugin(),
+                new NoHandDetectionPlugin(),
+                new MultipleFacesDetectionPlugin()
+            };
 
             // Initialize available monitoring options
             _availableMonitoringOptions = InitializeMonitoringOptions();
@@ -238,6 +246,7 @@ namespace STAR_MUTIMEDIA.Services
                                 throw new InvalidOperationException("Converted OpenCV mat is empty");
                             }
 
+                            session.Stats.AverageBrightness = EstimateSceneBrightness(mat);
                             var processedMat = ProcessFrame(mat, session, notifications, logs, detectionData);
                             var outputMat = processedMat.Clone();
                             // Convert back to base64 only if processing was successful
@@ -267,6 +276,7 @@ namespace STAR_MUTIMEDIA.Services
 
                 var faceExpressions = AnalyzeFaceExpressions(detectionData.Faces);
                 var handGestures = AnalyzeHandGestures(detectionData.Hands);
+                handGestures = ApplyGestureTemporalSmoothing(session, handGestures);
                 var eyeMovements = AnalyzeEyeMovements(detectionData.Eyes);
                 if (session.Settings.EnableConfidenceFusion)
                 {
@@ -274,6 +284,7 @@ namespace STAR_MUTIMEDIA.Services
                 }
                 var vitalMetrics = EstimateVitalMetrics(detectionData.Faces);
                 var monitoringState = BuildMonitoringState(session, faceExpressions, handGestures, eyeMovements);
+                RunDetectionPlugins(session, detectionData, notifications, logs);
 
                 session.Stats.ExpressionsDetected = faceExpressions.Count > 0;
                 session.Stats.GesturesDetected = handGestures.Count > 0;
@@ -423,6 +434,68 @@ namespace STAR_MUTIMEDIA.Services
             }
 
             return gestures;
+        }
+
+        private List<HandGesture> ApplyGestureTemporalSmoothing(SessionData session, List<HandGesture> gestures)
+        {
+            if (gestures == null || gestures.Count == 0)
+            {
+                return gestures ?? new List<HandGesture>();
+            }
+
+            var top = gestures
+                .OrderByDescending(g => g.Confidence)
+                .FirstOrDefault();
+            if (top == null || string.IsNullOrWhiteSpace(top.Type))
+            {
+                return gestures;
+            }
+
+            session.RecentGestureLabels.Enqueue(top.Type);
+            while (session.RecentGestureLabels.Count > 8)
+            {
+                session.RecentGestureLabels.Dequeue();
+            }
+
+            var smoothedLabel = session.RecentGestureLabels
+                .GroupBy(x => x)
+                .OrderByDescending(g => g.Count())
+                .ThenByDescending(g => g.Key == top.Type ? 1 : 0)
+                .Select(g => g.Key)
+                .FirstOrDefault() ?? top.Type;
+
+            session.GestureConfidenceEma = session.GestureConfidenceEma <= 0.0
+                ? top.Confidence
+                : (0.65 * session.GestureConfidenceEma) + (0.35 * top.Confidence);
+
+            top.Type = smoothedLabel;
+            top.Confidence = Math.Clamp(session.GestureConfidenceEma, 0.1, 0.99);
+            return gestures;
+        }
+
+        private void RunDetectionPlugins(
+            SessionData session,
+            DetectionData detectionData,
+            List<DetectionNotification> notifications,
+            List<SystemLog> logs)
+        {
+            foreach (var plugin in _detectionPlugins)
+            {
+                try
+                {
+                    plugin.Evaluate(session, detectionData, notifications, logs);
+                }
+                catch (Exception ex)
+                {
+                    logs.Add(new SystemLog
+                    {
+                        Message = $"Plugin {plugin.Name} failed: {ex.Message}",
+                        Timestamp = DateTime.UtcNow,
+                        Level = "Warning",
+                        Component = "PluginPipeline"
+                    });
+                }
+            }
         }
 
         private List<EyeMovement> AnalyzeEyeMovements(List<EyeDetection> eyes)
@@ -631,7 +704,17 @@ namespace STAR_MUTIMEDIA.Services
                 using (var grayFrame = new Mat())
                 {
                     Cv2.CvtColor(frame, grayFrame, ColorConversionCodes.BGR2GRAY);
-                    Cv2.EqualizeHist(grayFrame, grayFrame);
+                    if (session.Stats.AverageBrightness < session.Settings.LowLightThreshold)
+                    {
+                        using (var clahe = Cv2.CreateCLAHE(2.0, new Size(8, 8)))
+                        {
+                            clahe.Apply(grayFrame, grayFrame);
+                        }
+                    }
+                    else
+                    {
+                        Cv2.EqualizeHist(grayFrame, grayFrame);
+                    }
 
                     // Camera movement analysis
                     if (IsMonitoringEnabled(config, "CameraMovementAnalysis"))
@@ -820,11 +903,14 @@ namespace STAR_MUTIMEDIA.Services
                     HaarDetectionTypes.ScaleImage,
                     new Size(30, 30)
                 );
+                var filteredFaces = FilterOverlappingRects(faces, 0.35)
+                    .OrderByDescending(r => r.Width * r.Height)
+                    .ToList();
 
-                stats.FacesDetected = faces.Length;
+                stats.FacesDetected = filteredFaces.Count;
                 detectionData.Faces.Clear();
 
-                foreach (var face in faces)
+                foreach (var face in filteredFaces)
                 {
                     var faceArea = face.Width * face.Height;
                     var frameArea = Math.Max(1, grayFrame.Width * grayFrame.Height);
@@ -982,11 +1068,15 @@ namespace STAR_MUTIMEDIA.Services
                     HaarDetectionTypes.ScaleImage,
                     new Size(30, 30)
                 );
-
-                stats.HandsDetected = hands.Length;
+                var filteredHands = FilterOverlappingRects(hands, 0.40);
+                stats.HandsDetected = filteredHands.Count;
                 detectionData.Hands.Clear();
+                var selectedHands = filteredHands
+                    .OrderByDescending(h => h.Width * h.Height)
+                    .Take(Math.Max(1, session.Settings.MaxTrackedHands))
+                    .ToList();
 
-                foreach (var hand in hands)
+                foreach (var hand in selectedHands)
                 {
                     var handArea = hand.Width * hand.Height;
                     var frameArea = Math.Max(1, grayFrame.Width * grayFrame.Height);
@@ -1028,7 +1118,7 @@ namespace STAR_MUTIMEDIA.Services
                     notifications.Add(new DetectionNotification
                     {
                         Type = "HandDetection",
-                        Message = $"{hands.Length} hand(s) detected",
+                        Message = $"{detectionData.Hands.Count} hand(s) tracked",
                         Timestamp = DateTime.UtcNow,
                         Severity = "Info",
                         Category = "Detection"
@@ -1045,6 +1135,57 @@ namespace STAR_MUTIMEDIA.Services
                     Component = "HandDetection"
                 });
             }
+        }
+
+        private static double EstimateSceneBrightness(Mat frame)
+        {
+            if (frame == null || frame.Empty())
+            {
+                return 0.0;
+            }
+
+            using (var gray = new Mat())
+            {
+                Cv2.CvtColor(frame, gray, ColorConversionCodes.BGR2GRAY);
+                return Cv2.Mean(gray).Val0;
+            }
+        }
+
+        private static List<Rect> FilterOverlappingRects(IEnumerable<Rect> candidates, double iouThreshold)
+        {
+            var ordered = candidates
+                .OrderByDescending(r => r.Width * r.Height)
+                .ToList();
+            var selected = new List<Rect>();
+
+            foreach (var rect in ordered)
+            {
+                var overlaps = selected.Any(existing => CalculateIoU(existing, rect) >= iouThreshold);
+                if (!overlaps)
+                {
+                    selected.Add(rect);
+                }
+            }
+
+            return selected;
+        }
+
+        private static double CalculateIoU(Rect a, Rect b)
+        {
+            var x1 = Math.Max(a.Left, b.Left);
+            var y1 = Math.Max(a.Top, b.Top);
+            var x2 = Math.Min(a.Right, b.Right);
+            var y2 = Math.Min(a.Bottom, b.Bottom);
+            var intersectionWidth = Math.Max(0, x2 - x1);
+            var intersectionHeight = Math.Max(0, y2 - y1);
+            var intersection = intersectionWidth * intersectionHeight;
+            if (intersection <= 0)
+            {
+                return 0.0;
+            }
+
+            var union = (a.Width * a.Height) + (b.Width * b.Height) - intersection;
+            return union <= 0 ? 0.0 : (double)intersection / union;
         }
 
         private void SafeMovementDetection(Mat currentFrame, Mat processedFrame, SessionData session,

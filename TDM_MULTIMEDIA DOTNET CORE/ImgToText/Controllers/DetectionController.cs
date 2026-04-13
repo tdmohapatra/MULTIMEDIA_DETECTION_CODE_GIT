@@ -1,6 +1,8 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
+using STAR_MUTIMEDIA.Hubs;
 using STAR_MUTIMEDIA.Models;
 using STAR_MUTIMEDIA.Services;
 using System;
@@ -16,13 +18,16 @@ namespace STAR_MUTIMEDIA.Controllers
     {
         private readonly IRealTimeDetectionService _detectionService;
         private readonly ILogger<DetectionController> _logger;
+        private readonly IHubContext<DetectionHub> _hubContext;
 
         public DetectionController(
             IRealTimeDetectionService detectionService,
-            ILogger<DetectionController> logger)
+            ILogger<DetectionController> logger,
+            IHubContext<DetectionHub> hubContext)
         {
             _detectionService = detectionService ?? throw new ArgumentNullException(nameof(detectionService));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _hubContext = hubContext ?? throw new ArgumentNullException(nameof(hubContext));
         }
 
         [HttpPost("process-frame")]
@@ -53,6 +58,12 @@ namespace STAR_MUTIMEDIA.Controllers
                     frameData.SessionId, frameData.FrameNumber);
 
                 var result = await _detectionService.ProcessFrameAsync(frameData);
+                await _hubContext.Clients.Group(frameData.SessionId).SendAsync("detectionUpdate", new
+                {
+                    sessionId = frameData.SessionId,
+                    timestamp = DateTime.UtcNow,
+                    result
+                });
 
                 _logger.LogDebug("Frame processed successfully for session {SessionId}", frameData.SessionId);
                 return Ok(result);

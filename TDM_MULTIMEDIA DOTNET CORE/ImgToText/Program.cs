@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.CookiePolicy;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using STAR_MUTIMEDIA.Hubs;
 using STAR_MUTIMEDIA.Services;
 using System;
 using System.Collections.Generic;
@@ -24,6 +25,10 @@ var effectiveTessDataPath = string.IsNullOrWhiteSpace(configuredTessDataPath)
 // ---------------------- SERVICE REGISTRATION ----------------------
 // Add MVC controllers with views
 builder.Services.AddControllersWithViews();
+builder.Services.AddSignalR(options =>
+{
+    options.MaximumReceiveMessageSize = 5 * 1024 * 1024;
+});
 
 // Add Razor Pages support (required for MapRazorPages)
 builder.Services.AddRazorPages();
@@ -124,6 +129,7 @@ app.MapControllerRoute(
     pattern: "{controller=Home}/{action=Index}/{id?}");
 
 app.MapRazorPages(); // Ensure Razor Pages work if used
+app.MapHub<DetectionHub>("/detectionHub");
 
 // ---------------------- DIRECTORY CHECKS ----------------------
 

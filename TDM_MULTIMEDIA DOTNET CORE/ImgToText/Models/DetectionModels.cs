@@ -33,6 +33,7 @@ namespace STAR_MUTIMEDIA.Models
         // Performance metrics
         public double AverageProcessingTimeMs { get; set; }
         public double MemoryUsageMB { get; set; }
+        public double AverageBrightness { get; set; }
         public bool IsSystemOptimal { get; set; } = true;
 
         public DetectionStats Clone()
@@ -59,6 +60,7 @@ namespace STAR_MUTIMEDIA.Models
                 RecentMovements = new List<MovementVector>(this.RecentMovements),
                 AverageProcessingTimeMs = this.AverageProcessingTimeMs,
                 MemoryUsageMB = this.MemoryUsageMB,
+                AverageBrightness = this.AverageBrightness,
                 IsSystemOptimal = this.IsSystemOptimal
             };
         }
@@ -125,6 +127,9 @@ namespace STAR_MUTIMEDIA.Models
         public bool EnableHardwareAcceleration { get; set; } = true;
         public bool EnableModelEnhancedPipeline { get; set; } = false;
         public bool EnableConfidenceFusion { get; set; } = true;
+        public bool EnableWebSocketStreaming { get; set; } = true;
+        public int MaxTrackedHands { get; set; } = 2;
+        public double LowLightThreshold { get; set; } = 45.0;
 
         // Alert settings
         public bool EnableAlerts { get; set; } = true;
@@ -543,6 +548,8 @@ namespace STAR_MUTIMEDIA.Models
         public string StableGestureLabel { get; set; } = "None";
         public string GestureCandidateLabel { get; set; } = "None";
         public int StableGestureStreak { get; set; } = 0;
+        public Queue<string> RecentGestureLabels { get; set; } = new Queue<string>();
+        public double GestureConfidenceEma { get; set; } = 0.0;
 
         public void UpdateFrameTime()
         {
