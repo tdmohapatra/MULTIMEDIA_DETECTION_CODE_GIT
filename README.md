@@ -37,10 +37,15 @@ Open these pages in browser:
 - `http://localhost:5080/DetectionView` → **Live tracking & behavior workspace**
 - `http://localhost:5080/DetectionView/Index` → **Live tracking & behavior workspace** (same view)
 - `http://localhost:5080/DetectionClient/SceneAnalysis` → **Humans / animals / objects scene analysis**
+- `http://localhost:5080/DetectionClient/ModelCanvas` → **Large model canvas with live diagnostics**
 - `http://localhost:5080/Home/Privacy` → **Privacy page**
 
-Useful API path:
-- `http://localhost:5078/api/ ` → **API health status**
+Useful API paths:
+- `http://localhost:5078/api/detection/health` → **Detection service health**
+- `http://localhost:5078/api/detection/detector-health?sessionId=<id>` → **Detector readiness snapshot**
+- `http://localhost:5078/api/detection/detector-diagnostics/<sessionId>` → **Per-session stage timings + source mix**
+- `http://localhost:5078/api/system/health` → **System health + memory summary**
+- `http://localhost:5078/ready` → **Startup readiness checks**
 
 ---
 
@@ -64,8 +69,36 @@ Useful API path:
 - `GET /api/system/memory?count=120` → memory history
 - `POST /api/system/memory/capture` → manual snapshot trigger
 - `GET /api/system/logs?count=150` → recent structured app logs
+- `GET /api/detection/detector-health?sessionId=<id>` → detector availability and model readiness
+- `GET /api/detection/detector-diagnostics/<sessionId>` → avg/last stage timing split + source/category counts
 
 Logs are persisted under: `ImgToText/logs/observability/`
+
+### Detection telemetry highlights
+- `DetectionResult.stageTimings` returns `decodeMs`, `detectionMs`, `renderMs`, `postAnalysisMs`, `totalMs`
+- `DetectionResult.detectorHealth` returns per-detector readiness (face/eye/hand/full-body/cat + SSD)
+- Scene UIs show:
+  - model status dots,
+  - SLO/latency status,
+  - stage timing split,
+  - source mix diagnostics
+
+### Security hardening (API)
+- Global API rate limiting configured via `Security:RateLimit`
+- API payload cap via `Security:MaxApiRequestBytes`
+- Multipart cap via `Security:MaxMultipartBytes`
+- Configurable in:
+  - `appsettings.json`
+  - `appsettings.Development.json`
+  - `appsettings.Production.json`
+
+### CI quality gates
+- GitHub Actions workflow: `.github/workflows/ci-quality-gates.yml`
+- On push/PR, pipeline runs:
+  - solution restore
+  - API release build
+  - UI release build
+  - API smoke checks (`/api/detection/health`, `/ready`)
 
 ---
 
@@ -247,15 +280,8 @@ Licensed under the MIT License — free to use and modify for personal or resear
 
 ---
 
-## ✅ Next Steps
-1. Open **Visual Studio 2022**  
-2. Add a new text file → name it `README.md`  
-3. Paste the above content  
-4. **Commit** and **Push** to GitHub  
-5. Visit your GitHub repo → your README will appear perfectly formatted 👌  
-
----
-
-Would you like me to generate a **matching project banner image** (for example:  
-🎨 *“STAR MULTIMEDIA — .NET Core AI Vision Suite”*) you can place at the top of your GitHub page (`/doc
+## ✅ Current Status
+- OCR normal + advanced flows are integrated with diagnostics and tamper signals.
+- SceneAnalysis + ModelCanvas are unified around shared transport/frame processing utilities.
+- Production observability and endpoint diagnostics are available for runtime monitoring.
 

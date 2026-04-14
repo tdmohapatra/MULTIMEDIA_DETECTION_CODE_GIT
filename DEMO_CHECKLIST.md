@@ -23,14 +23,22 @@
 - Run:
   - `dotnet run --urls http://localhost:5078`
 - Open in browser:
-  - Home: `http://localhost:5078/`
-  - Real-time detection: `http://localhost:5078/DetectionView/Index`
+  - API Home: `http://localhost:5078/`
+  - UI Home: `http://localhost:5080/`
+  - Scene Analysis: `http://localhost:5080/DetectionClient/SceneAnalysis`
+  - Model Canvas: `http://localhost:5080/DetectionClient/ModelCanvas`
 
 ## 4) Health and Readiness Checks
 
 - Health endpoint:
   - `http://localhost:5078/api/detection/health`
   - Expected: `200` and status payload
+- Detector health endpoint:
+  - `http://localhost:5078/api/detection/detector-health?sessionId=<sessionId>`
+  - Expected: `200` and detector readiness payload
+- Detector diagnostics endpoint:
+  - `http://localhost:5078/api/detection/detector-diagnostics/<sessionId>`
+  - Expected: `200` with average/last stage timings and source mix
 - Readiness endpoint:
   - `http://localhost:5078/ready`
   - Expected:
@@ -43,12 +51,18 @@
 2. Show OCR upload flow:
    - upload image,
    - extract text,
+   - show diagnostics panel (quality, signature, potential tamper),
    - download/export result.
 3. Show Real-time detection page:
    - allow camera permission,
    - start processing,
    - show counters/notifications updating.
-4. Open readiness endpoint and explain operational checks.
+4. Open Scene Analysis page:
+   - switch **Accuracy preset** (`Balanced`, `Human Focus`, `Animal Strict`, `All Detail`),
+   - show detector status dots and SLO badge.
+5. Open Model Canvas page:
+   - show stage split and source mix diagnostics.
+6. Open readiness and diagnostics endpoints and explain operational checks.
 
 ## 6) Quick Troubleshooting During Demo
 
@@ -58,6 +72,10 @@
   - verify `eng.traineddata` exists in `Uploads/tessdata`.
 - If detection UI opens but no detections:
   - verify cascade XML files in `Uploads/cascades`.
+- If scene/model diagnostics show high latency:
+  - lower FPS slider,
+  - lower resolution,
+  - use `Human Focus` preset.
 - If browser camera fails:
   - allow camera permission, close other apps using camera, refresh page.
 
@@ -68,5 +86,5 @@
 ## 8) Optional One-Command Endpoint Check
 
 - PowerShell:
-  - `curl.exe -s -o NUL -w "HOME=%{http_code}\n" http://localhost:5078/; curl.exe -s -o NUL -w "HEALTH=%{http_code}\n" http://localhost:5078/api/detection/health; curl.exe -s -o NUL -w "READY=%{http_code}\n" http://localhost:5078/ready`
+  - `curl.exe -s -o NUL -w "HOME=%{http_code}\n" http://localhost:5078/; curl.exe -s -o NUL -w "HEALTH=%{http_code}\n" http://localhost:5078/api/detection/health; curl.exe -s -o NUL -w "READY=%{http_code}\n" http://localhost:5078/ready; curl.exe -s -o NUL -w "UIHOME=%{http_code}\n" http://localhost:5080/`
 
