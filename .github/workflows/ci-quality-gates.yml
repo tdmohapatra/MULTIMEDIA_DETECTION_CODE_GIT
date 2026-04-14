@@ -48,8 +48,17 @@ jobs:
         run: |
           $health = Invoke-WebRequest -Uri "http://localhost:5078/api/detection/health" -UseBasicParsing -TimeoutSec 20
           if ($health.StatusCode -ne 200) { throw "Health failed: $($health.StatusCode)" }
-          $ready = Invoke-WebRequest -Uri "http://localhost:5078/ready" -UseBasicParsing -TimeoutSec 20
-          if ($ready.StatusCode -ne 200 -and $ready.StatusCode -ne 503) { throw "Ready failed: $($ready.StatusCode)" }
+          try {
+            $ready = Invoke-WebRequest -Uri "http://localhost:5078/ready" -UseBasicParsing -TimeoutSec 20
+            $readyStatus = [int]$ready.StatusCode
+          } catch {
+            if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+              $readyStatus = [int]$_.Exception.Response.StatusCode
+            } else {
+              throw
+            }
+          }
+          if ($readyStatus -ne 200 -and $readyStatus -ne 503) { throw "Ready failed: $readyStatus" }
 
       - name: Stop API process
         if: always()
