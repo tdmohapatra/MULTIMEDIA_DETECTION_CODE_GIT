@@ -37,7 +37,10 @@ window.SceneSharedClient = (() => {
             enableFaceCascade: !!inputs.face?.checked,
             enableFullBodyCascade: !!inputs.fullBody?.checked,
             enableCatCascade: !!inputs.cat?.checked,
-            ssdConfidenceThreshold: Number(inputs.ssdConfidenceThreshold?.value ?? 0.35),
+            sceneModelBackend: String(inputs.sceneModelBackend?.value || 'yolo').toLowerCase(),
+            ssdConfidenceThreshold: Number(inputs.ssdConfidenceThreshold?.value ?? 0.40),
+            yoloInputSize: parseInt(inputs.yoloInputSize?.value ?? '640', 10) || 640,
+            yoloNmsThreshold: Number(inputs.yoloNmsThreshold?.value ?? 0.45),
             fullBodyMinNeighbors: parseInt(inputs.fullBodyMinNeighbors?.value ?? '3', 10) || 3,
             catMinNeighbors: parseInt(inputs.catMinNeighbors?.value ?? '6', 10) || 6,
             catMinAreaRatio: Number(inputs.catMinAreaRatio?.value ?? 0.004)

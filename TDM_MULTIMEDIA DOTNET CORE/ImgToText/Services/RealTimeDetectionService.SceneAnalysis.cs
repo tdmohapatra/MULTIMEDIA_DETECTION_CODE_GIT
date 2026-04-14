@@ -17,6 +17,18 @@ namespace STAR_MUTIMEDIA.Services
             "diningtable", "dog", "horse", "motorbike", "person", "pottedplant", "sheep", "sofa", "train", "tvmonitor"
         };
 
+        private static readonly string[] YoloCocoClassNames =
+        {
+            "person","bicycle","car","motorcycle","airplane","bus","train","truck","boat","traffic light",
+            "fire hydrant","stop sign","parking meter","bench","bird","cat","dog","horse","sheep","cow",
+            "elephant","bear","zebra","giraffe","backpack","umbrella","handbag","tie","suitcase","frisbee",
+            "skis","snowboard","sports ball","kite","baseball bat","baseball glove","skateboard","surfboard","tennis racket","bottle",
+            "wine glass","cup","fork","knife","spoon","bowl","banana","apple","sandwich","orange",
+            "broccoli","carrot","hot dog","pizza","donut","cake","chair","couch","potted plant","bed",
+            "dining table","toilet","tv","laptop","mouse","remote","keyboard","cell phone","microwave","oven",
+            "toaster","sink","refrigerator","book","clock","vase","scissors","teddy bear","hair drier","toothbrush"
+        };
+
         private static bool IsLikelyTextProto(string path)
         {
             try
@@ -119,6 +131,50 @@ namespace STAR_MUTIMEDIA.Services
             }
         }
 
+        private Net? GetOrLoadYoloV8()
+        {
+            if (_yoloV8Net != null)
+                return _yoloV8Net;
+            if (_yoloLoadFailed)
+                return null;
+
+            lock (_yoloLoadLock)
+            {
+                if (_yoloV8Net != null)
+                    return _yoloV8Net;
+                if (_yoloLoadFailed)
+                    return null;
+
+                try
+                {
+                    var dir = Path.Combine(Directory.GetCurrentDirectory(), "Uploads", "models");
+                    if (!Directory.Exists(dir))
+                    {
+                        _yoloLoadFailed = true;
+                        return null;
+                    }
+
+                    var model = Directory.GetFiles(dir, "*.onnx", SearchOption.TopDirectoryOnly)
+                        .OrderBy(f => f.Contains("yolov8n", StringComparison.OrdinalIgnoreCase) ? 0 :
+                                      f.Contains("yolov8s", StringComparison.OrdinalIgnoreCase) ? 1 : 2)
+                        .FirstOrDefault();
+                    if (string.IsNullOrWhiteSpace(model))
+                    {
+                        _yoloLoadFailed = true;
+                        return null;
+                    }
+
+                    _yoloV8Net = CvDnn.ReadNetFromOnnx(model);
+                    return _yoloV8Net;
+                }
+                catch
+                {
+                    _yoloLoadFailed = true;
+                    return null;
+                }
+            }
+        }
+
         private interface ISceneDetectionStrategy
         {
             string SourceKey { get; }
@@ -145,14 +201,17 @@ namespace STAR_MUTIMEDIA.Services
         private sealed class SsdSceneDetectionStrategy : ISceneDetectionStrategy
         {
             public string SourceKey => "ssd";
-            public bool ShouldRun(SceneProcessingOptions options) => options.EnableSsdModel;
+            public bool ShouldRun(SceneProcessingOptions options) =>
+                options.EnableSsdModel
+                && !string.Equals(options.SceneModelBackend, "yolo", StringComparison.OrdinalIgnoreCase);
 
             public void Execute(SceneStrategyContext context)
             {
                 if (context.SsdNet == null) return;
                 try
                 {
-                    using var blob = CvDnn.BlobFromImage(context.ProcessedFrameBgr, 1.0, new Size(300, 300), new Scalar(104, 117, 123), false, false);
+                    using var bgr = EnsureThreeChannelBgr(context.ProcessedFrameBgr);
+                    using var blob = CvDnn.BlobFromImage(bgr, 1.0, new Size(300, 300), new Scalar(104, 117, 123), false, false);
                     context.SsdNet.SetInput(blob);
                     using var output = context.SsdNet.Forward();
                     var n = output.Size(2);
@@ -210,6 +269,157 @@ namespace STAR_MUTIMEDIA.Services
                         Component = "SceneAnalysis"
                     });
                 }
+            }
+        }
+
+        private sealed class YoloSceneDetectionStrategy : ISceneDetectionStrategy
+        {
+            public string SourceKey => "yolo";
+            public bool ShouldRun(SceneProcessingOptions options) => string.Equals(options?.SceneModelBackend, "yolo", StringComparison.OrdinalIgnoreCase) && options.EnableSsdModel;
+
+            public void Execute(SceneStrategyContext context)
+            {
+                if (context.SsdNet == null)
+                    return;
+                try
+                {
+                    using var bgr = EnsureThreeChannelBgr(context.ProcessedFrameBgr);
+                    var yoloInput = Math.Clamp(context.Options.YoloInputSize, 320, 960);
+                    using var blob = CvDnn.BlobFromImage(bgr, 1.0 / 255.0, new Size(yoloInput, yoloInput), new Scalar(), swapRB: true, crop: false);
+                    context.SsdNet.SetInput(blob);
+                    using var output = context.SsdNet.Forward();
+                    ParseYoloOutputAndAppendEntities(output, context, yoloInput);
+                    context.ExecutedSources.Add(SourceKey);
+                }
+                catch (Exception ex)
+                {
+                    context.Logs.Add(new SystemLog
+                    {
+                        Message = $"Scene YOLO error: {ex.Message}",
+                        Timestamp = DateTime.UtcNow,
+                        Level = "Warning",
+                        Component = "SceneAnalysis"
+                    });
+                }
+            }
+        }
+
+        private static void ParseYoloOutputAndAppendEntities(Mat output, SceneStrategyContext context, int modelInputSize)
+        {
+            // Handles common YOLOv8 output shapes:
+            // - [1, 84, N]
+            // - [1, N, 84]
+            // where 84 = 4 bbox + 80 classes.
+            var d1 = output.Size(1);
+            var d2 = output.Size(2);
+            var isChannelsFirst = d1 == 84;
+            var proposalCount = isChannelsFirst ? d2 : d1;
+            var features = isChannelsFirst ? d1 : d2;
+            if (features < 6 || proposalCount <= 0)
+            {
+                return;
+            }
+
+            var threshold = Math.Clamp(context.Options.SsdConfidenceThreshold, 0.05, 0.95);
+            var scaleX = context.FrameWidth / (double)Math.Max(1, modelInputSize);
+            var scaleY = context.FrameHeight / (double)Math.Max(1, modelInputSize);
+            var boxes = new List<Rect>();
+            var scores = new List<float>();
+            var labels = new List<string>();
+            var categories = new List<string>();
+            var labelHistogram = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+            float At(int proposal, int feature)
+            {
+                return isChannelsFirst
+                    ? output.At<float>(0, feature, proposal)
+                    : output.At<float>(0, proposal, feature);
+            }
+
+            for (var p = 0; p < proposalCount; p++)
+            {
+                var cx = At(p, 0);
+                var cy = At(p, 1);
+                var w = At(p, 2);
+                var h = At(p, 3);
+                if (w < 2 || h < 2) continue;
+
+                var bestScore = 0f;
+                var classId = -1;
+                for (var c = 4; c < features; c++)
+                {
+                    var score = At(p, c);
+                    if (score > bestScore)
+                    {
+                        bestScore = score;
+                        classId = c - 4;
+                    }
+                }
+                if (bestScore < threshold || classId < 0 || classId >= YoloCocoClassNames.Length) continue;
+
+                var label = YoloCocoClassNames[classId];
+                var cat = MapLabelToCategory(label);
+                if ((cat == "Human" && !context.Options.IncludeHuman) ||
+                    (cat == "Animal" && !context.Options.IncludeAnimal) ||
+                    (cat == "Object" && !context.Options.IncludeObject))
+                {
+                    continue;
+                }
+
+                var x = Math.Max(0, (int)Math.Round((cx - (w / 2.0f)) * scaleX));
+                var y = Math.Max(0, (int)Math.Round((cy - (h / 2.0f)) * scaleY));
+                var bw = Math.Max(1, (int)Math.Round(w * scaleX));
+                var bh = Math.Max(1, (int)Math.Round(h * scaleY));
+                if (x >= context.FrameWidth || y >= context.FrameHeight) continue;
+
+                boxes.Add(new Rect(x, y, Math.Min(bw, context.FrameWidth - x), Math.Min(bh, context.FrameHeight - y)));
+                scores.Add(bestScore);
+                labels.Add(label);
+                categories.Add(cat);
+                if (!labelHistogram.ContainsKey(label))
+                {
+                    labelHistogram[label] = 0;
+                }
+                labelHistogram[label]++;
+            }
+
+            if (boxes.Count == 0) return;
+
+            var nms = (float)Math.Clamp(context.Options.YoloNmsThreshold, 0.2, 0.8);
+            CvDnn.NMSBoxes(boxes, scores, (float)threshold, nms, out var picked);
+            foreach (var idx in picked)
+            {
+                if (idx < 0 || idx >= boxes.Count) continue;
+                var bb = boxes[idx];
+                context.Scene.Entities.Add(new SceneEntity
+                {
+                    Category = categories[idx],
+                    Label = labels[idx],
+                    Confidence = scores[idx],
+                    BBox = new BoundingBox
+                    {
+                        X = bb.X,
+                        Y = bb.Y,
+                        Width = bb.Width,
+                        Height = bb.Height
+                    },
+                    Source = "yolo"
+                });
+            }
+
+            if (picked.Length > 0)
+            {
+                var top = labelHistogram
+                    .OrderByDescending(kv => kv.Value)
+                    .Take(6)
+                    .Select(kv => $"{kv.Key}:{kv.Value}");
+                context.Logs.Add(new SystemLog
+                {
+                    Message = $"YOLO detections {picked.Length} => {string.Join(", ", top)}",
+                    Timestamp = DateTime.UtcNow,
+                    Level = "Info",
+                    Component = "SceneAnalysis"
+                });
             }
         }
 
@@ -299,12 +509,17 @@ namespace STAR_MUTIMEDIA.Services
                 ExecutedSources = executedSources,
                 FrameWidth = fw,
                 FrameHeight = fh,
-                SsdNet = runSsd ? GetOrLoadMobileNetSsd() : null
+                SsdNet = runSsd
+                    ? (string.Equals(opts.SceneModelBackend, "yolo", StringComparison.OrdinalIgnoreCase)
+                        ? GetOrLoadYoloV8()
+                        : GetOrLoadMobileNetSsd())
+                    : null
             };
             scene.ModelStatus.SsdLoaded = context.SsdNet != null;
 
             var strategies = new ISceneDetectionStrategy[]
             {
+                new YoloSceneDetectionStrategy(),
                 new SsdSceneDetectionStrategy(),
                 new FaceSceneDetectionStrategy(),
                 new FullBodySceneDetectionStrategy(),
@@ -314,6 +529,14 @@ namespace STAR_MUTIMEDIA.Services
             {
                 if (!strategy.ShouldRun(opts))
                     continue;
+                if (!opts.ProcessAllModels)
+                {
+                    var backend = string.IsNullOrWhiteSpace(opts.SceneModelBackend) ? "ssd" : opts.SceneModelBackend.Trim().ToLowerInvariant();
+                    if (backend == "yolo" && strategy is not YoloSceneDetectionStrategy)
+                        continue;
+                    if (backend != "yolo" && strategy is not SsdSceneDetectionStrategy)
+                        continue;
+                }
                 strategy.Execute(context);
             }
 
@@ -334,9 +557,32 @@ namespace STAR_MUTIMEDIA.Services
         {
             if (string.Equals(label, "person", StringComparison.OrdinalIgnoreCase))
                 return "Human";
-            if (label is "cat" or "dog" or "bird" or "horse" or "cow" or "sheep")
+            if (label is "cat" or "dog" or "bird" or "horse" or "cow" or "sheep" or "elephant" or "bear" or "zebra" or "giraffe")
                 return "Animal";
             return "Object";
+        }
+
+        private static Mat EnsureThreeChannelBgr(Mat source)
+        {
+            if (source.Channels() == 3)
+            {
+                return source.Clone();
+            }
+
+            var bgr = new Mat();
+            if (source.Channels() == 4)
+            {
+                Cv2.CvtColor(source, bgr, ColorConversionCodes.BGRA2BGR);
+            }
+            else if (source.Channels() == 1)
+            {
+                Cv2.CvtColor(source, bgr, ColorConversionCodes.GRAY2BGR);
+            }
+            else
+            {
+                source.ConvertTo(bgr, MatType.CV_8UC3);
+            }
+            return bgr;
         }
 
         private void AddHumanEntitiesFromFaces(DetectionData detectionData, SceneAnalysisResult scene)

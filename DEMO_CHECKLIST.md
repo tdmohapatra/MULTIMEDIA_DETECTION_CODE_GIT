@@ -17,6 +17,8 @@
 - Required cascade files:
   - `TDM_MULTIMEDIA DOTNET CORE/ImgToText/Uploads/cascades/haarcascade_frontalface_alt.xml`
   - `TDM_MULTIMEDIA DOTNET CORE/ImgToText/Uploads/cascades/haarcascade_eye.xml`
+- YOLO model file (optional but recommended):
+  - `TDM_MULTIMEDIA DOTNET CORE/ImgToText/Uploads/models/yolov8n.onnx`
 
 ## 3) Start Application
 
@@ -64,6 +66,19 @@
    - show stage split and source mix diagnostics.
 6. Open readiness and diagnostics endpoints and explain operational checks.
 
+## 6A) YOLO Verification (Quick 3-step)
+
+1. Open `Scene Analysis` or `Model Canvas` and set:
+   - **Scene model backend** = `YOLOv8 ONNX`
+2. Start processing and confirm UI pipeline badge includes:
+   - `yolo` (for example: `yolo+face+fullbody+cat_cascade`)
+3. Check diagnostics endpoint for same session:
+   - `GET /api/detection/detector-diagnostics/<sessionId>`
+   - Expected keys:
+     - `sceneModelBackend = "yolo"`
+     - `inferenceProvider = "directml"` (or `"cpu"` fallback)
+     - `modulePerformance.scene` populated with latency/FPS values
+
 ## 6) Quick Troubleshooting During Demo
 
 - If app does not start:
@@ -76,6 +91,10 @@
   - lower FPS slider,
   - lower resolution,
   - use `Human Focus` preset.
+- If YOLO is not active:
+  - verify `yolov8n.onnx` is inside `Uploads/models`,
+  - ensure backend selector is `YOLOv8 ONNX`,
+  - check diagnostics `sceneModelBackend` value for current session.
 - If browser camera fails:
   - allow camera permission, close other apps using camera, refresh page.
 

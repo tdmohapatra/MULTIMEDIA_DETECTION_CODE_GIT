@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 using OpenCvSharp;
@@ -132,6 +132,13 @@ namespace STAR_MUTIMEDIA.Models
         public bool EnableWebSocketStreaming { get; set; } = true;
         public int MaxTrackedHands { get; set; } = 2;
         public double LowLightThreshold { get; set; } = 45.0;
+        public bool EnableRoiScheduling { get; set; } = true;
+        public int SchedulerHeavyFrameInterval { get; set; } = 2;
+        public int SchedulerSceneFrameInterval { get; set; } = 3;
+        public int MaxTrackedPeople { get; set; } = 2;
+        public bool HandOnDemandOnly { get; set; } = false;
+        public string SceneModelBackend { get; set; } = "yolo";
+        public string OcrProvider { get; set; } = "tesseract";
 
         // Alert settings
         public bool EnableAlerts { get; set; } = true;
@@ -195,6 +202,8 @@ namespace STAR_MUTIMEDIA.Models
         public double PostAnalysisMs { get; set; }
         public double TotalMs { get; set; }
         public bool SkippedByRateControl { get; set; }
+        public int QueueDepth { get; set; }
+        public string FrameDecision { get; set; } = "full";
     }
 
     public class DetectorHealthSnapshot
@@ -224,6 +233,37 @@ namespace STAR_MUTIMEDIA.Models
         public Dictionary<string, int> LastEntityBySource { get; set; } = new Dictionary<string, int>();
         public Dictionary<string, int> LastEntityByCategory { get; set; } = new Dictionary<string, int>();
         public DetectorHealthSnapshot Health { get; set; } = new DetectorHealthSnapshot();
+        public ModulePerformanceMetrics ModulePerformance { get; set; } = new ModulePerformanceMetrics();
+        public List<IntelligenceEvent> RecentEvents { get; set; } = new List<IntelligenceEvent>();
+        public string InferenceProvider { get; set; } = "cpu";
+        public string SceneModelBackend { get; set; } = "yolo";
+    }
+
+    public class ModuleTiming
+    {
+        public double AvgMs { get; set; }
+        public double LastMs { get; set; }
+        public double Fps { get; set; }
+    }
+
+    public class ModulePerformanceMetrics
+    {
+        public ModuleTiming Face { get; set; } = new ModuleTiming();
+        public ModuleTiming Hand { get; set; } = new ModuleTiming();
+        public ModuleTiming Scene { get; set; } = new ModuleTiming();
+        public ModuleTiming Ocr { get; set; } = new ModuleTiming();
+        public int DroppedFrames { get; set; }
+        public int ScheduledSkips { get; set; }
+        public int QueueDrops { get; set; }
+    }
+
+    public class IntelligenceEvent
+    {
+        public string Type { get; set; } = "";
+        public string Severity { get; set; } = "Info";
+        public string Message { get; set; } = "";
+        public DateTime TimestampUtc { get; set; } = DateTime.UtcNow;
+        public Dictionary<string, string> Context { get; set; } = new Dictionary<string, string>();
     }
 
     public class MonitoringState
@@ -384,6 +424,7 @@ namespace STAR_MUTIMEDIA.Models
 
         // Detector/model toggles
         public bool EnableSsdModel { get; set; } = true;
+        public string SceneModelBackend { get; set; } = "yolo"; // ssd, yolo
         public bool EnableFaceCascade { get; set; } = true;
         public bool EnableFullBodyCascade { get; set; } = true;
         public bool EnableCatCascade { get; set; } = true;
@@ -393,6 +434,8 @@ namespace STAR_MUTIMEDIA.Models
 
         // Per-source thresholds/tuning
         public double SsdConfidenceThreshold { get; set; } = 0.35;
+        public int YoloInputSize { get; set; } = 640;
+        public double YoloNmsThreshold { get; set; } = 0.45;
         public int FullBodyMinNeighbors { get; set; } = 3;
         public int CatMinNeighbors { get; set; } = 6;
         public double CatMinAreaRatio { get; set; } = 0.004;
@@ -702,6 +745,16 @@ namespace STAR_MUTIMEDIA.Models
         public int StableGestureStreak { get; set; } = 0;
         public Queue<string> RecentGestureLabels { get; set; } = new Queue<string>();
         public double GestureConfidenceEma { get; set; } = 0.0;
+        public int FrameSequence { get; set; } = 0;
+        public int AdaptiveSkipCountdown { get; set; } = 0;
+        public int ScheduledSkipCount { get; set; } = 0;
+        public int DroppedFrameCount { get; set; } = 0;
+        public Queue<IntelligenceEvent> RecentEvents { get; set; } = new Queue<IntelligenceEvent>();
+        public Queue<double> FaceModuleMs { get; set; } = new Queue<double>();
+        public Queue<double> HandModuleMs { get; set; } = new Queue<double>();
+        public Queue<double> SceneModuleMs { get; set; } = new Queue<double>();
+        public Queue<double> OcrModuleMs { get; set; } = new Queue<double>();
+        public string InferenceProvider { get; set; } = "cpu";
 
         public SceneAnalysisResult LastSceneAnalysis { get; set; }
 
@@ -770,6 +823,25 @@ namespace STAR_MUTIMEDIA.Models
                 sum += time;
             }
             return sum / ProcessingTimes.Count;
+        }
+
+        public void PushEvent(IntelligenceEvent evt)
+        {
+            if (evt == null) return;
+            RecentEvents.Enqueue(evt);
+            while (RecentEvents.Count > 100)
+            {
+                RecentEvents.Dequeue();
+            }
+        }
+
+        public void AddModuleTiming(Queue<double> queue, double value)
+        {
+            queue.Enqueue(value);
+            while (queue.Count > 120)
+            {
+                queue.Dequeue();
+            }
         }
     }
 }

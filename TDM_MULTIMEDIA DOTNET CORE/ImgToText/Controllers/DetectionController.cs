@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
@@ -8,6 +8,8 @@ using STAR_MUTIMEDIA.Services;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using System.IO;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace STAR_MUTIMEDIA.Controllers
@@ -231,6 +233,28 @@ namespace STAR_MUTIMEDIA.Controllers
             }
         }
 
+        [HttpGet("yolo-best-profile")]
+        public IActionResult GetYoloBestProfile()
+        {
+            try
+            {
+                var profilePath = Path.Combine(Directory.GetCurrentDirectory(), "Uploads", "models", "yolo-best-profile.json");
+                if (!System.IO.File.Exists(profilePath))
+                {
+                    return NotFound(new { error = "YOLO best profile not found" });
+                }
+
+                var json = System.IO.File.ReadAllText(profilePath);
+                var payload = JsonSerializer.Deserialize<object>(json);
+                return Ok(payload);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error reading YOLO best profile");
+                return StatusCode(500, new { error = "Internal server error reading YOLO best profile" });
+            }
+        }
+
         [HttpGet("detector-health")]
         public IActionResult DetectorHealth([FromQuery] string sessionId = null)
         {
@@ -380,9 +404,9 @@ namespace STAR_MUTIMEDIA.Controllers
                     return BadRequest(new { error = "Session ID is required" });
                 }
 
-                if (request == null || request.TargetFPS <= 0 || request.TargetFPS > 60)
+                if (request == null || request.TargetFPS < 0.5 || request.TargetFPS > 100)
                 {
-                    return BadRequest(new { error = "Target FPS must be between 1 and 60" });
+                    return BadRequest(new { error = "Target FPS must be between 0.5 and 100" });
                 }
 
                 _detectionService.SetTargetFPS(sessionId, request.TargetFPS);
@@ -529,7 +553,7 @@ namespace STAR_MUTIMEDIA.Controllers
     public class FrameRateRequest
     {
         [Required]
-        [Range(1, 60)]
+        [Range(0.5, 100)]
         public double TargetFPS { get; set; }
     }
 

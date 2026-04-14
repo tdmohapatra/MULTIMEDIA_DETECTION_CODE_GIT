@@ -1,4 +1,4 @@
-﻿@* @{
+@* @{
     Layout = null;
 }
  *@
@@ -777,6 +777,7 @@
         </div>
     </div>
 
+    <script src="~/js/ocrSharedClient.js"></script>
     <script>
         // Global variables
         let mediaStream = null;
@@ -1109,7 +1110,7 @@
         function handleFileUpload() {
             const fileInput = document.createElement('input');
             fileInput.type = 'file';
-            fileInput.accept = 'image/*,.pdf,.doc,.docx';
+            fileInput.accept = OcrSharedClient.imageOnlyAccept;
 
             fileInput.onchange = async (e) => {
                 const file = e.target.files[0];
@@ -1170,7 +1171,7 @@
         async function handleEnhancedProcessing() {
             const fileInput = document.createElement('input');
             fileInput.type = 'file';
-            fileInput.accept = 'image/*,.pdf,.doc,.docx';
+            fileInput.accept = OcrSharedClient.imageOnlyAccept;
 
             fileInput.onchange = async (e) => {
                 const file = e.target.files[0];
@@ -1228,7 +1229,7 @@
         async function handleBulkUpload() {
             const fileInput = document.createElement('input');
             fileInput.type = 'file';
-            fileInput.accept = 'image/*,.pdf,.doc,.docx';
+            fileInput.accept = OcrSharedClient.imageOnlyAccept;
             fileInput.multiple = true;
 
             fileInput.onchange = async (e) => {
@@ -1459,13 +1460,15 @@
                 }
 
                 const analysisResults = document.getElementById('analysisResults');
+                const originalTextSafe = OcrSharedClient.escapeHtml(result.originalText || 'None');
+                const processedTextSafe = OcrSharedClient.escapeHtml(result.processedText || 'None');
                 analysisResults.innerHTML = `
                     <strong>OCR Method Comparison:</strong><br>
                     - Original Confidence: ${Math.round(result.originalConfidence)}%<br>
                     - Processed Confidence: ${Math.round(result.processedConfidence)}%<br>
                     - Improvement: ${Math.round(result.improvement)}%<br><br>
-                    <strong>Original Text:</strong><br>${result.originalText || 'None'}<br><br>
-                    <strong>Processed Text:</strong><br>${result.processedText || 'None'}
+                    <strong>Original Text:</strong><br>${originalTextSafe}<br><br>
+                    <strong>Processed Text:</strong><br>${processedTextSafe}
                 `;
                 analysisResults.style.display = 'block';
 

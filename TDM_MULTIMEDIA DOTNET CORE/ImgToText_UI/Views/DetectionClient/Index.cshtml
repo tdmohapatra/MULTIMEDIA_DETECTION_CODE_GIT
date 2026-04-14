@@ -237,6 +237,7 @@
                 <span class="bh-item">Primary speed <strong id="htSpeed">0</strong> px/f</span>
             </div>
             <div class="mt-2 small text-secondary" id="bhBehaviors">Behaviors: —</div>
+            <div class="mt-2 small text-secondary" id="runtimePerf">Runtime: waiting for diagnostics…</div>
         </div>
     </div>
     <div class="col-12 col-xl-4">
@@ -269,12 +270,29 @@
                 </div>
                 <div class="mb-2">
                     <label class="form-label">Processing FPS</label>
-                    <input id="processFps" type="range" min="1" max="1000" value="20" class="form-range" />
-                    <small><span id="processFpsValue">20</span> fps</small>
+                    <input id="processFps" type="range" min="0.5" max="100" step="0.5" value="20" class="form-range" />
+                    <small><span id="processFpsValue">20.0</span> fps</small>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Image quality profile</label>
+                    <select id="imageQualityPreset" class="form-select form-select-sm">
+                        <option value="0.42">Smallest (fastest)</option>
+                        <option value="0.55" selected>Balanced</option>
+                        <option value="0.70">High</option>
+                        <option value="0.82">Highest (slowest)</option>
+                    </select>
                 </div>
                 <div class="mb-2 form-check">
                     <input class="form-check-input" type="checkbox" id="halfResolution">
                     <label class="form-check-label" for="halfResolution">Use half image resolution per frame (0.5x)</label>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Max tracked people</label>
+                    <input id="maxTrackedPeople" type="number" min="1" max="6" value="2" class="form-control form-control-sm" />
+                </div>
+                <div class="mb-2 form-check">
+                    <input class="form-check-input" type="checkbox" id="handOnDemandOnly">
+                    <label class="form-check-label" for="handOnDemandOnly">Hand detection on-demand only</label>
                 </div>
                 <div class="mb-2">
                     <label class="form-label">Confidence Threshold (%)</label>
@@ -365,7 +383,12 @@
     const trailSecondsValue = document.getElementById('trailSecondsValue');
     const processFpsInput = document.getElementById('processFps');
     const processFpsValue = document.getElementById('processFpsValue');
+    const imageQualityPreset = document.getElementById('imageQualityPreset');
     const halfResolutionInput = document.getElementById('halfResolution');
+    const maxTrackedPeopleInput = document.getElementById('maxTrackedPeople');
+    const handOnDemandOnlyInput = document.getElementById('handOnDemandOnly');
+    const runtimePerf = document.getElementById('runtimePerf');
+    let diagTimer = null;
     let lastProcessedFrameNo = 0;
     const handTrail = [];
     let isRecordingTrail = false;
@@ -391,7 +414,7 @@
 
     sessionIdInput.value = `ui-${crypto.randomUUID().slice(0, 8)}`;
     trailSecondsValue.textContent = trailSecondsInput.value;
-    processFpsValue.textContent = processFpsInput.value;
+    processFpsValue.textContent = Number(processFpsInput.value || 20).toFixed(1);
 
     thresholdInput.addEventListener('input', async () => {
         thresholdValue.textContent = `${thresholdInput.value}%`;
@@ -401,7 +424,7 @@
         trailSecondsValue.textContent = trailSecondsInput.value;
     });
     processFpsInput.addEventListener('input', async () => {
-        processFpsValue.textContent = processFpsInput.value;
+        processFpsValue.textContent = Number(processFpsInput.value || 20).toFixed(1);
         await postSettings();
     });
 
@@ -427,7 +450,7 @@
     const processor = SceneSharedClient.createFrameProcessor({
         videoElement: video,
         getConstraints: () => ({ video: true, audio: false }),
-        getTargetFps: () => Math.max(1, Number(processFpsInput.value || 20)),
+        getTargetFps: () => Math.max(0.5, Math.min(100, Number(processFpsInput.value || 20))),
         onFrame: ({ frameNo }) => processFrame(frameNo)
     });
 
@@ -437,12 +460,18 @@
         await transport.initializeSession();
         await postSettings();
         await transport.connect();
+        if (diagTimer) clearInterval(diagTimer);
+        diagTimer = setInterval(refreshDiagnostics, 1500);
     }
 
     async function stop() {
         await processor.stop();
         await transport.disconnect();
         await transport.cleanupSession();
+        if (diagTimer) {
+            clearInterval(diagTimer);
+            diagTimer = null;
+        }
     }
 
     function toggleTrailRecording() {
@@ -563,7 +592,10 @@
                 enableTextDetection: true,
                 cameraStabilityThreshold: 60,
                 enableWebSocketStreaming: true,
-                maxTrackedHands: 2
+                maxTrackedHands: handOnDemandOnlyInput.checked ? 1 : 2,
+                maxTrackedPeople: Math.max(1, Math.min(6, Number(maxTrackedPeopleInput.value || 2))),
+                handOnDemandOnly: handOnDemandOnlyInput.checked,
+                enableRoiScheduling: true
             })
         });
     }
@@ -587,7 +619,8 @@
 
         const captureCtx = captureCanvas.getContext('2d');
         captureCtx.drawImage(video, 0, 0, sourceWidth, sourceHeight, 0, 0, width, height);
-        const imageData = captureCanvas.toDataURL('image/jpeg', 0.6);
+        const jpegQuality = Number(imageQualityPreset?.value || 0.55);
+        const imageData = captureCanvas.toDataURL('image/jpeg', jpegQuality);
 
         const payload = {
             sessionId: sid(),
@@ -605,6 +638,7 @@
         drawOverlay(data);
         updateSessionAnalytics(data);
         updateBehaviorHud(data);
+        refreshDiagnostics();
         output.textContent = JSON.stringify({
             success: data.success,
             trailFrame: { width: trailCanvas.width, height: trailCanvas.height },
@@ -617,6 +651,27 @@
             humanTracking: data.humanTracking,
             calibration: data.calibration
         }, null, 2);
+    }
+
+    async function refreshDiagnostics() {
+        try {
+            const r = await fetch(`${baseUrl()}/api/detection/detector-diagnostics/${encodeURIComponent(sid())}`);
+            if (!r.ok) return;
+            const d = await r.json();
+            const mp = d.modulePerformance || {};
+            const face = Number(mp.face?.fps || 0).toFixed(1);
+            const hand = Number(mp.hand?.fps || 0).toFixed(1);
+            const scene = Number(mp.scene?.fps || 0).toFixed(1);
+            const ocr = Number(mp.ocr?.fps || 0).toFixed(1);
+            const drops = mp.droppedFrames ?? 0;
+            const skips = mp.scheduledSkips ?? 0;
+            const provider = d.inferenceProvider || "cpu";
+            const evt = (d.recentEvents || []).slice(-1)[0];
+            const evtText = evt ? `${evt.type}:${evt.message}` : 'none';
+            runtimePerf.textContent = `Runtime: face ${face}fps | hand ${hand}fps | scene ${scene}fps | ocr ${ocr}fps | drops ${drops} | skips ${skips} | provider ${provider} | event ${evtText}`;
+        } catch {
+            // ignore transient diagnostics errors
+        }
     }
 
     function updateBehaviorHud(data) {
@@ -713,7 +768,8 @@
         movementPct.textContent = movement.toFixed(1);
 
         const dominantGesture = monitoringState.stableGesture || hands[0]?.gesture?.type || data?.handGestures?.[0]?.type || "-";
-        gestureName.textContent = dominantGesture;
+        const primaryFingers = hands.length ? countExtendedFingers(hands[0]) : 0;
+        gestureName.textContent = `${dominantGesture} (${primaryFingers})`;
         stableEmotion.textContent = monitoringState.stableDominantEmotion || faceEmotionFallback(data);
         oneEyeStatus.textContent = monitoringState.oneEyeClosed
             ? `OneEyeClosed(${monitoringState.oneEyeClosedSide || "Unknown"})`
@@ -730,9 +786,11 @@
 
         if (showHands.checked) {
             hands.forEach(hand => {
-                const label = hand.gesture?.type
-                    ? `${hand.gesture.type} ${(hand.gesture.confidence * 100).toFixed(0)}%`
-                    : `Hand ${(hand.confidence * 100).toFixed(0)}%`;
+                const fingerCount = countExtendedFingers(hand);
+                const inferredGesture = inferGestureFromFingers(hand, fingerCount);
+                const gestureLabel = hand.gesture?.type || inferredGesture;
+                const confidence = ((hand.gesture?.confidence ?? hand.confidence) * 100).toFixed(0);
+                const label = `${gestureLabel} | fingers:${fingerCount} | ${confidence}%`;
                 drawBox(ctx, hand.bBox, "#00ff9d", label);
 
                 drawHandSkeleton(ctx, hand, "#7fffd4");
@@ -943,21 +1001,49 @@
             y: normalizeToPixels(p.y, hand.bBox.y, hand.bBox.height, overlay.height)
         }));
 
+        const chains = [
+            [0, 1], [1, 2], [2, 3], [3, 4],         // thumb
+            [0, 5], [5, 6], [6, 7], [7, 8],         // index
+            [0, 9], [9, 10], [10, 11], [11, 12],    // middle
+            [0, 13], [13, 14], [14, 15], [15, 16],  // ring
+            [0, 17], [17, 18], [18, 19], [19, 20],  // pinky
+            [5, 9], [9, 13], [13, 17]               // palm arc
+        ];
+
         ctx.strokeStyle = color;
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(scaled[0].x, scaled[0].y);
-        for (let i = 1; i < scaled.length; i++) {
-            ctx.lineTo(scaled[i].x, scaled[i].y);
-        }
-        ctx.stroke();
+        ctx.lineWidth = 1.7;
+        chains.forEach(([a, b]) => {
+            if (a >= scaled.length || b >= scaled.length) return;
+            ctx.beginPath();
+            ctx.moveTo(scaled[a].x, scaled[a].y);
+            ctx.lineTo(scaled[b].x, scaled[b].y);
+            ctx.stroke();
+        });
 
         ctx.fillStyle = color;
-        scaled.forEach(p => {
+        scaled.forEach((p, i) => {
             ctx.beginPath();
-            ctx.arc(p.x, p.y, 2.2, 0, Math.PI * 2);
+            ctx.arc(p.x, p.y, i === 0 ? 3.2 : 2.4, 0, Math.PI * 2);
             ctx.fill();
         });
+
+        const tips = [
+            { i: 4, label: "Thumb" },
+            { i: 8, label: "Index" },
+            { i: 12, label: "Middle" },
+            { i: 16, label: "Ring" },
+            { i: 20, label: "Pinky" }
+        ];
+
+        ctx.save();
+        ctx.font = "10px Arial";
+        ctx.fillStyle = "#ffffff";
+        tips.forEach(t => {
+            if (t.i >= scaled.length) return;
+            const p = scaled[t.i];
+            ctx.fillText(t.label, p.x + 5, p.y - 5);
+        });
+        ctx.restore();
     }
 
     function faceEmotionFallback(data) {
@@ -1040,6 +1126,49 @@
                 x: normalizeToPixels(p.x, hand.bBox.x, hand.bBox.width, overlay.width),
                 y: normalizeToPixels(p.y, hand.bBox.y, hand.bBox.height, overlay.height)
             }));
+    }
+
+    function countExtendedFingers(hand) {
+        const points = hand?.landmarks || hand?.gesture?.keyPoints || [];
+        if (!Array.isArray(points) || points.length < 21) {
+            return 0;
+        }
+
+        const tipIds = [8, 12, 16, 20];
+        const pipIds = [6, 10, 14, 18];
+        let count = 0;
+
+        for (let i = 0; i < tipIds.length; i++) {
+            const tip = points[tipIds[i]];
+            const pip = points[pipIds[i]];
+            if (!tip || !pip) continue;
+            if (typeof tip.y === "number" && typeof pip.y === "number" && tip.y < pip.y - 0.02) {
+                count++;
+            }
+        }
+
+        const handedness = String(hand?.handedness || hand?.gesture?.handedness || "").toLowerCase();
+        const thumbTip = points[4];
+        const thumbIp = points[3];
+        if (thumbTip && thumbIp && typeof thumbTip.x === "number" && typeof thumbIp.x === "number") {
+            const thumbExtended = handedness === "left"
+                ? thumbTip.x < thumbIp.x - 0.015
+                : thumbTip.x > thumbIp.x + 0.015;
+            if (thumbExtended) count++;
+        }
+
+        return Math.max(0, Math.min(5, count));
+    }
+
+    function inferGestureFromFingers(hand, fingerCount) {
+        if (fingerCount <= 0) return "Fist";
+        if (fingerCount === 1) {
+            const points = hand?.landmarks || hand?.gesture?.keyPoints || [];
+            const indexExtended = points?.[8]?.y < points?.[6]?.y;
+            return indexExtended ? "Pointing" : "OneFinger";
+        }
+        if (fingerCount >= 4) return "OpenPalm";
+        return `${fingerCount}Fingers`;
     }
 })();
 </script>

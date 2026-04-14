@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
 using System;
 using System.IO;
 using System.Threading.Tasks;
@@ -14,6 +15,7 @@ namespace ImgToTextApp.Controllers
     public class ImgToTextController : Controller
     {
         private readonly IImageTextService _imageTextService;
+        private readonly IConfiguration _configuration;
         private readonly string uploadsPath;
         private const long MaxUploadSizeBytes = 10 * 1024 * 1024; // 10 MB
         private static readonly HashSet<string> AllowedImageExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -21,9 +23,10 @@ namespace ImgToTextApp.Controllers
             ".jpg", ".jpeg", ".png", ".bmp", ".gif"
         };
 
-        public ImgToTextController(IImageTextService imageTextService)
+        public ImgToTextController(IImageTextService imageTextService, IConfiguration configuration)
         {
             _imageTextService = imageTextService;
+            _configuration = configuration;
             uploadsPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads");
             Directory.CreateDirectory(uploadsPath);
         }
@@ -54,13 +57,14 @@ namespace ImgToTextApp.Controllers
 
                     // Save the original image
                     var fileName = $"camera_capture_{DateTime.Now:yyyyMMdd_HHmmss}.png";
-                    processedImagePath = Path.Combine(uploadsPath, fileName);
-                    analysisImagePath = processedImagePath;
-                    await System.IO.File.WriteAllBytesAsync(processedImagePath, imageBytes);
+                    var savedPath = Path.Combine(uploadsPath, fileName);
+                    processedImagePath = fileName;
+                    analysisImagePath = savedPath;
+                    await System.IO.File.WriteAllBytesAsync(savedPath, imageBytes);
 
                     // Extract text with confidence
                     var extractionTimer = Stopwatch.StartNew();
-                    var result = ExecuteOcrByPreset(processedImagePath, normalizedPreset);
+                    var result = ExecuteOcrByPreset(savedPath, normalizedPreset);
                     extractionTimer.Stop();
                     extractionMs = extractionTimer.Elapsed.TotalMilliseconds;
                     extractedText = result.Text;
@@ -69,7 +73,7 @@ namespace ImgToTextApp.Controllers
                     // Clean up if no text found
                     if (string.IsNullOrWhiteSpace(extractedText))
                     {
-                        System.IO.File.Delete(processedImagePath);
+                        System.IO.File.Delete(savedPath);
                         processedImagePath = null;
                     }
                 }
@@ -638,33 +642,63 @@ namespace ImgToTextApp.Controllers
         }
 
         [HttpPost]
-        public IActionResult BulkProcess([FromBody] BulkProcessRequest request)
+        public async Task<IActionResult> BulkProcess(BulkProcessRequest? request)
         {
             try
             {
-                if (request?.FileNames == null || !request.FileNames.Any())
-                {
-                    return ApiError("File names are required", 400);
-                }
-
                 var results = new List<BulkProcessResult>();
-
-                foreach (var fileName in request.FileNames)
+                var uploadedFiles = Request.HasFormContentType ? Request.Form.Files : null;
+                if (uploadedFiles != null && uploadedFiles.Count > 0)
                 {
-                    if (!TryBuildSafeUploadPath(fileName, out var fullPath))
+                    foreach (var file in uploadedFiles)
                     {
-                        continue;
-                    }
-                    if (System.IO.File.Exists(fullPath))
-                    {
+                        if (!ValidateIncomingFile(file, out _))
+                        {
+                            continue;
+                        }
+
+                        var safeBaseName = SanitizeFileName(Path.GetFileNameWithoutExtension(file.FileName));
+                        var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+                        var storedFileName = $"{safeBaseName}_{DateTime.Now:yyyyMMdd_HHmmssfff}{ext}";
+                        var fullPath = Path.Combine(uploadsPath, storedFileName);
+                        await using var stream = new FileStream(fullPath, FileMode.Create);
+                        await file.CopyToAsync(stream);
+
                         var confidenceResult = _imageTextService.ExtractTextWithConfidence(fullPath);
                         results.Add(new BulkProcessResult
                         {
-                            FileName = fileName,
+                            FileName = file.FileName,
                             Text = confidenceResult.Text,
                             Confidence = confidenceResult.Confidence,
                             Success = !string.IsNullOrWhiteSpace(confidenceResult.Text)
                         });
+                        System.IO.File.Delete(fullPath);
+                    }
+                }
+                else
+                {
+                    if (request?.FileNames == null || !request.FileNames.Any())
+                    {
+                        return ApiError("Files or file names are required", 400);
+                    }
+
+                    foreach (var fileName in request.FileNames)
+                    {
+                        if (!TryBuildSafeUploadPath(fileName, out var fullPath))
+                        {
+                            continue;
+                        }
+                        if (System.IO.File.Exists(fullPath))
+                        {
+                            var confidenceResult = _imageTextService.ExtractTextWithConfidence(fullPath);
+                            results.Add(new BulkProcessResult
+                            {
+                                FileName = fileName,
+                                Text = confidenceResult.Text,
+                                Confidence = confidenceResult.Confidence,
+                                Success = !string.IsNullOrWhiteSpace(confidenceResult.Text)
+                            });
+                        }
                     }
                 }
 
@@ -834,12 +868,25 @@ namespace ImgToTextApp.Controllers
 
         private (string Text, float Confidence) ExecuteOcrByPreset(string imagePath, string preset)
         {
+            var provider = (_configuration["Ocr:Provider"] ?? "tesseract").Trim().ToLowerInvariant();
+            if (provider is "paddleocr" or "easyocr")
+            {
+                // Provider abstraction for phased migration: fallback to current OCR engine until external backend is wired.
+                return ExecuteCurrentOcr(imagePath, preset);
+            }
+
+            return ExecuteCurrentOcr(imagePath, preset);
+        }
+
+        private (string Text, float Confidence) ExecuteCurrentOcr(string imagePath, string preset)
+        {
             if (preset == "sensitive")
             {
                 var preprocessedText = _imageTextService.ExtractTextFromImageWithPreprocessing(imagePath);
                 if (!string.IsNullOrWhiteSpace(preprocessedText))
                 {
-                    return (preprocessedText, 72f);
+                    var baselineConfidence = _imageTextService.ExtractTextWithConfidence(imagePath).Confidence;
+                    return (preprocessedText, Math.Max(55f, baselineConfidence));
                 }
             }
 

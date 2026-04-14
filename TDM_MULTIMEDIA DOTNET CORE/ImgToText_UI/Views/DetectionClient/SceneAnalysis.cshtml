@@ -5,7 +5,7 @@
 
 <style>
     .scene-shell { background: #0e1520; color: #e8f0ff; border-radius: 12px; padding: 12px; border: 1px solid #2a4570; }
-    .scene-stack { position: relative; width: 100%; border-radius: 10px; overflow: hidden; background: #050914; min-height: 320px; }
+    .scene-stack { position: relative; width: 100%; border-radius: 10px; overflow: hidden; background: #050914; min-height: clamp(220px, 32vh, 340px); }
     .scene-video, .scene-overlay { position: absolute; inset: 0; width: 100%; height: 100%; }
     .scene-overlay { pointer-events: none; }
     .scene-hud { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; font-size: 12px; }
@@ -16,11 +16,15 @@
     .scene-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; }
     .dot-on { background:#4ade80; box-shadow: 0 0 8px #4ade80; }
     .dot-off { background:#ef4444; box-shadow: 0 0 8px #ef4444; }
-    .scene-toast-wrap { position: fixed; right: 14px; bottom: 14px; display: flex; flex-direction: column; gap: 8px; z-index: 2000; max-width: 360px; }
-    .scene-toast { background: rgba(7, 16, 29, 0.95); color: #d8ecff; border: 1px solid #2e6faf; border-radius: 8px; padding: 8px 10px; box-shadow: 0 10px 24px rgba(0,0,0,0.38); animation: toastIn .2s ease-out; }
-    .scene-toast .t-title { font-weight: 600; font-size: 12px; }
-    .scene-toast .t-meta { font-size: 11px; opacity: 0.9; }
-    @@keyframes toastIn { from { transform: translateY(6px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    .scene-trail-wrap { margin-top:10px; background:#061224; border:1px solid #21456e; border-radius:10px; padding:8px; }
+    .scene-trail-title { font-size:12px; color:#9ecbff; margin-bottom:6px; }
+    .scene-trail-canvas { width:100%; height:clamp(280px, 44vh, 520px); background:#030a15; border:1px solid #224a74; border-radius:8px; display:block; }
+    .scene-info-panel { position:fixed; right:18px; top:110px; width:320px; max-width:90vw; background:rgba(5,14,26,0.94); border:1px solid #2b5b8f; border-radius:10px; z-index:3200; box-shadow:0 10px 28px rgba(0,0,0,0.35); }
+    .scene-info-head { cursor:move; user-select:none; padding:8px 10px; border-bottom:1px solid #2b5b8f; display:flex; justify-content:space-between; align-items:center; font-size:12px; }
+    .scene-info-body { padding:8px 10px; }
+    .scene-info-list { max-height:210px; overflow:auto; font-size:12px; display:flex; flex-direction:column; gap:6px; }
+    .scene-info-item { background:#0a1d34; border:1px solid #2b5b8f; border-radius:7px; padding:6px; }
+    .scene-info-time { color:#8fbef5; font-size:11px; }
 </style>
 
 <nav class="mb-2" aria-label="breadcrumb">
@@ -51,9 +55,14 @@
                 <span class="scene-badge">Detectors: <strong id="sceneDetectorHealth">—</strong></span>
                 <span class="scene-badge">SLO: <strong id="sceneSloStatus">—</strong></span>
                 <span class="scene-badge">Stage split: <strong id="sceneStageSplit">d:0 p:0 r:0</strong></span>
+                <span class="scene-badge">Profile: <strong id="sceneProfileSource">default</strong></span>
             </div>
         </div>
         <canvas id="sceneCapture" class="d-none"></canvas>
+        <div class="scene-trail-wrap">
+            <div class="scene-trail-title">Trail Analytics Canvas (shape + color coded objects)</div>
+            <canvas id="sceneTrailCanvas" class="scene-trail-canvas"></canvas>
+        </div>
     </div>
     <div class="col-lg-4">
         <div class="card border-secondary">
@@ -64,10 +73,12 @@
                 <input id="sceneSessionId" class="form-control form-control-sm mb-2" />
                 <div class="scene-controls-grid">
                     <label><input id="scIncludeHuman" type="checkbox" checked /> Human</label>
-                    <label><input id="scIncludeAnimal" type="checkbox" /> Animal</label>
-                    <label><input id="scIncludeObject" type="checkbox" /> Object</label>
+                    <label><input id="scIncludeAnimal" type="checkbox" checked /> Animal</label>
+                    <label><input id="scIncludeObject" type="checkbox" checked /> Object</label>
                     <label><input id="scProcessAll" type="checkbox" /> Process all models</label>
-                    <label><input id="scSsd" type="checkbox" /> SSD model</label>
+                    <label><input id="scSsd" type="checkbox" checked /> Primary detector enabled</label>
+                </div>
+                <div id="scLegacyOptions" class="scene-controls-grid">
                     <label><input id="scFace" type="checkbox" checked /> Face cascade</label>
                     <label><input id="scFullbody" type="checkbox" /> Full-body cascade</label>
                     <label><input id="scCat" type="checkbox" /> Cat cascade</label>
@@ -96,8 +107,8 @@
                     <option value="native">Native camera</option>
                 </select>
                 <label class="form-label mt-2">SSD confidence threshold</label>
-                <input id="scSsdThresh" type="range" min="0.05" max="0.95" step="0.01" value="0.35" class="form-range" />
-                <small class="text-muted"><span id="scSsdThreshVal">0.35</span></small>
+                <input id="scSsdThresh" type="range" min="0.05" max="0.95" step="0.01" value="0.40" class="form-range" />
+                <small class="text-muted"><span id="scSsdThreshVal">0.40</span></small>
                 <label class="form-label mt-2">Full-body strictness (neighbors)</label>
                 <input id="scBodyNeighbors" type="range" min="1" max="12" step="1" value="3" class="form-range" />
                 <small class="text-muted"><span id="scBodyNeighborsVal">3</span></small>
@@ -107,6 +118,24 @@
                 <label class="form-label mt-2">Cat minimum area ratio</label>
                 <input id="scCatAreaRatio" type="range" min="0.0005" max="0.02" step="0.0005" value="0.004" class="form-range" />
                 <small class="text-muted"><span id="scCatAreaRatioVal">0.0040</span></small>
+                <label class="form-label mt-2">Scene model backend</label>
+                <select id="scSceneBackend" class="form-select form-select-sm">
+                    <option value="ssd">MobileNet SSD</option>
+                    <option value="yolo" selected>YOLOv8 ONNX (recommended)</option>
+                </select>
+                <label class="form-label mt-2">YOLO input size</label>
+                <select id="scYoloInputSize" class="form-select form-select-sm">
+                    <option value="416">416 (fast)</option>
+                    <option value="512">512 (balanced)</option>
+                    <option value="640" selected>640 (accurate)</option>
+                    <option value="736">736 (high detail)</option>
+                </select>
+                <label class="form-label mt-2">YOLO NMS threshold</label>
+                <input id="scYoloNms" type="range" min="0.25" max="0.75" step="0.01" value="0.45" class="form-range" />
+                <small class="text-muted"><span id="scYoloNmsVal">0.45</span></small>
+                <small class="text-muted d-block mt-1">
+                    YOLO classes include: person, bicycle, car, motorcycle, bus, truck, cat, dog, bird, horse, cow, sheep and 60+ more COCO labels.
+                </small>
                 <div class="scene-status-grid">
                     <div class="scene-status-item"><span class="scene-dot dot-off" id="stSsd"></span>SSD model</div>
                     <div class="scene-status-item"><span class="scene-dot dot-off" id="stFace"></span>Face cascade</div>
@@ -118,7 +147,22 @@
         </div>
     </div>
 </div>
-<div id="sceneToastWrap" class="scene-toast-wrap"></div>
+<div id="sceneInfoPanel" class="scene-info-panel">
+    <div id="sceneInfoHead" class="scene-info-head">
+        <strong>Detection Timeline</strong>
+        <span>drag</span>
+    </div>
+    <div class="scene-info-body">
+        <label class="form-label mb-1">Window (<span id="sceneTimelineWindowVal">30</span>s)</label>
+        <input id="sceneTimelineWindow" type="range" min="10" max="180" step="5" value="30" class="form-range" />
+        <div class="d-flex gap-2 small mb-2">
+            <label><input id="scFDet" type="checkbox" checked /> Objects</label>
+            <label><input id="scFLog" type="checkbox" checked /> Logs</label>
+            <label><input id="scFSys" type="checkbox" checked /> System</label>
+        </div>
+        <div id="sceneDetectList" class="scene-info-list"></div>
+    </div>
+</div>
 
 @section Scripts {
 <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.7/signalr.min.js"></script>
@@ -134,7 +178,15 @@
     const fpsVal = document.getElementById('sceneFpsVal');
     const resolutionSelect = document.getElementById('sceneResolution');
     const jsonOut = document.getElementById('sceneJson');
-    const toastWrap = document.getElementById('sceneToastWrap');
+    const trailCanvas = document.getElementById('sceneTrailCanvas');
+    const detectList = document.getElementById('sceneDetectList');
+    const timelineWindow = document.getElementById('sceneTimelineWindow');
+    const timelineWindowVal = document.getElementById('sceneTimelineWindowVal');
+    const scFDet = document.getElementById('scFDet');
+    const scFLog = document.getElementById('scFLog');
+    const scFSys = document.getElementById('scFSys');
+    const infoPanel = document.getElementById('sceneInfoPanel');
+    const infoHead = document.getElementById('sceneInfoHead');
     const scIncludeHuman = document.getElementById('scIncludeHuman');
     const scIncludeAnimal = document.getElementById('scIncludeAnimal');
     const scIncludeObject = document.getElementById('scIncludeObject');
@@ -152,19 +204,22 @@
     const scCatNeighborsVal = document.getElementById('scCatNeighborsVal');
     const scCatAreaRatio = document.getElementById('scCatAreaRatio');
     const scCatAreaRatioVal = document.getElementById('scCatAreaRatioVal');
+    const scSceneBackend = document.getElementById('scSceneBackend');
+    const scLegacyOptions = document.getElementById('scLegacyOptions');
+    const scYoloInputSize = document.getElementById('scYoloInputSize');
+    const scYoloNms = document.getElementById('scYoloNms');
+    const scYoloNmsVal = document.getElementById('scYoloNmsVal');
     const stSsd = document.getElementById('stSsd');
     const stFace = document.getElementById('stFace');
     const stBody = document.getElementById('stBody');
     const stCat = document.getElementById('stCat');
     const sceneSloStatus = document.getElementById('sceneSloStatus');
     const sceneStageSplit = document.getElementById('sceneStageSplit');
+    const sceneProfileSource = document.getElementById('sceneProfileSource');
     let lastDiagFetchAt = 0;
-    const toastDetection = SceneSharedClient.createToaster({
-        wrap: toastWrap,
-        toastClass: 'scene-toast',
-        titleClass: 't-title',
-        metaClass: 't-meta'
-    });
+    const trailTracks = new Map();
+    const detectionTimeline = [];
+    let trailPointSeq = 0;
     const transport = SceneSharedClient.createDetectionTransport({
         getBaseUrl: () => baseUrl(),
         getSessionId: () => sid(),
@@ -186,31 +241,90 @@
     scBodyNeighbors.addEventListener('input', () => { scBodyNeighborsVal.textContent = `${parseInt(scBodyNeighbors.value, 10) || 3}`; });
     scCatNeighbors.addEventListener('input', () => { scCatNeighborsVal.textContent = `${parseInt(scCatNeighbors.value, 10) || 6}`; });
     scCatAreaRatio.addEventListener('input', () => { scCatAreaRatioVal.textContent = Number(scCatAreaRatio.value).toFixed(4); });
+    scYoloNms.addEventListener('input', () => { scYoloNmsVal.textContent = Number(scYoloNms.value).toFixed(2); });
+    timelineWindow.addEventListener('input', () => {
+        timelineWindowVal.textContent = timelineWindow.value;
+        renderTimeline();
+    });
+    [scFDet, scFLog, scFSys].forEach(el => el.addEventListener('change', renderTimeline));
     scenePreset.addEventListener('change', () => applyPreset(scenePreset.value));
+    scSceneBackend.addEventListener('change', () => {
+        // In YOLO mode, keep cat cascade optional and tighten confidence for fewer false positives.
+        if (String(scSceneBackend.value).toLowerCase() === 'yolo') {
+            scSsd.checked = true;
+            if (scenePreset.value !== 'allDetail') {
+                scCat.checked = false;
+                scSsdThresh.value = '0.40';
+                scSsdThreshVal.textContent = '0.40';
+            }
+        }
+        syncModelOptionVisibility();
+    });
+
+    function syncModelOptionVisibility() {
+        const isYolo = String(scSceneBackend.value).toLowerCase() === 'yolo';
+        const showLegacy = !isYolo || scProcessAll.checked;
+        scLegacyOptions.style.display = showLegacy ? 'grid' : 'none';
+    }
 
     function applyPreset(preset) {
         const p = preset || 'balanced';
         if (p === 'humanFocus') {
+            scSceneBackend.value = 'yolo';
             scIncludeHuman.checked = true; scIncludeAnimal.checked = false; scIncludeObject.checked = false;
-            scProcessAll.checked = false; scSsd.checked = false; scFace.checked = true; scFullbody.checked = true; scCat.checked = false;
-            scSsdThresh.value = '0.55'; scBodyNeighbors.value = '4'; scCatNeighbors.value = '8'; scCatAreaRatio.value = '0.006';
+            scProcessAll.checked = false; scSsd.checked = true; scFace.checked = false; scFullbody.checked = false; scCat.checked = false;
+            scSsdThresh.value = '0.50'; scBodyNeighbors.value = '4'; scCatNeighbors.value = '8'; scCatAreaRatio.value = '0.006';
         } else if (p === 'animalStrict') {
+            scSceneBackend.value = 'yolo';
             scIncludeHuman.checked = true; scIncludeAnimal.checked = true; scIncludeObject.checked = false;
-            scProcessAll.checked = false; scSsd.checked = true; scFace.checked = true; scFullbody.checked = false; scCat.checked = true;
-            scSsdThresh.value = '0.50'; scBodyNeighbors.value = '4'; scCatNeighbors.value = '10'; scCatAreaRatio.value = '0.008';
+            scProcessAll.checked = false; scSsd.checked = true; scFace.checked = false; scFullbody.checked = false; scCat.checked = false;
+            scSsdThresh.value = '0.52'; scBodyNeighbors.value = '4'; scCatNeighbors.value = '10'; scCatAreaRatio.value = '0.008';
         } else if (p === 'allDetail') {
+            scSceneBackend.value = 'yolo';
             scIncludeHuman.checked = true; scIncludeAnimal.checked = true; scIncludeObject.checked = true;
             scProcessAll.checked = true; scSsd.checked = true; scFace.checked = true; scFullbody.checked = true; scCat.checked = true;
             scSsdThresh.value = '0.30'; scBodyNeighbors.value = '3'; scCatNeighbors.value = '6'; scCatAreaRatio.value = '0.004';
         } else {
-            scIncludeHuman.checked = true; scIncludeAnimal.checked = false; scIncludeObject.checked = false;
-            scProcessAll.checked = false; scSsd.checked = false; scFace.checked = true; scFullbody.checked = false; scCat.checked = false;
-            scSsdThresh.value = '0.35'; scBodyNeighbors.value = '3'; scCatNeighbors.value = '6'; scCatAreaRatio.value = '0.004';
+            scSceneBackend.value = 'yolo';
+            scIncludeHuman.checked = true; scIncludeAnimal.checked = true; scIncludeObject.checked = true;
+            scProcessAll.checked = false; scSsd.checked = true; scFace.checked = false; scFullbody.checked = false; scCat.checked = false;
+            scSsdThresh.value = '0.40'; scBodyNeighbors.value = '3'; scCatNeighbors.value = '6'; scCatAreaRatio.value = '0.004';
         }
         scSsdThreshVal.textContent = Number(scSsdThresh.value).toFixed(2);
         scBodyNeighborsVal.textContent = `${parseInt(scBodyNeighbors.value, 10) || 3}`;
         scCatNeighborsVal.textContent = `${parseInt(scCatNeighbors.value, 10) || 6}`;
         scCatAreaRatioVal.textContent = Number(scCatAreaRatio.value).toFixed(4);
+    }
+
+    async function applyYoloBestProfileFromApi() {
+        try {
+            const r = await fetch(`${baseUrl()}/api/detection/yolo-best-profile`);
+            if (!r.ok) {
+                sceneProfileSource.textContent = r.status === 404 ? 'default' : 'offline';
+                return;
+            }
+            const profile = await r.json();
+            const options = profile?.sceneOptions || {};
+            if (String(options.sceneModelBackend || '').toLowerCase() === 'yolo') {
+                document.getElementById('scSceneBackend').value = 'yolo';
+            }
+            if (Number.isFinite(Number(options.ssdConfidenceThreshold))) {
+                scSsdThresh.value = String(Number(options.ssdConfidenceThreshold).toFixed(2));
+            }
+            if (Number.isFinite(Number(options.yoloInputSize))) {
+                scYoloInputSize.value = String(parseInt(options.yoloInputSize, 10));
+            }
+            if (Number.isFinite(Number(options.yoloNmsThreshold))) {
+                scYoloNms.value = String(Number(options.yoloNmsThreshold).toFixed(2));
+                scYoloNmsVal.textContent = Number(scYoloNms.value).toFixed(2);
+            }
+            scSsdThreshVal.textContent = Number(scSsdThresh.value).toFixed(2);
+            sceneProfileSource.textContent = 'calibrated';
+            pushTimeline('system', 'YOLO profile', `Loaded calibrated profile (${scSsdThresh.value})`);
+        } catch {
+            // Optional profile; keep local defaults when unavailable.
+            sceneProfileSource.textContent = 'offline';
+        }
     }
 
     function sceneOptions() {
@@ -223,7 +337,10 @@
             face: scFace,
             fullBody: scFullbody,
             cat: scCat,
+            sceneModelBackend: document.getElementById('scSceneBackend'),
             ssdConfidenceThreshold: scSsdThresh,
+            yoloInputSize: scYoloInputSize,
+            yoloNmsThreshold: scYoloNms,
             fullBodyMinNeighbors: scBodyNeighbors,
             catMinNeighbors: scCatNeighbors,
             catMinAreaRatio: scCatAreaRatio
@@ -242,8 +359,160 @@
         SceneSharedClient.setStatusDot(el, on, 'dot-on', 'dot-off');
     }
 
+    function getEntityStyle(ent) {
+        const label = String(ent?.label || '').toLowerCase();
+        const cat = String(ent?.category || '').toLowerCase();
+        const display = String(ent?.label || ent?.category || 'object');
+        if (label.includes('face')) return { shape: 'circle', color: '#2ee66b', text: display };
+        if (label.includes('person') || cat === 'human') return { shape: 'circle', color: '#ffe45e', text: display };
+        if (label.includes('car')) return { shape: 'triangle', color: '#ff4d4d', text: display };
+        if (label.includes('bike') || label.includes('bicycle') || label.includes('motorbike')) return { shape: 'rect', color: '#ff7f50', text: display };
+        if (label.includes('cat')) return { shape: 'circle', color: '#4da6ff', text: display };
+        if (label.includes('dog')) return { shape: 'square', color: '#5dff7a', text: display };
+        if (label.includes('truck')) return { shape: 'rect', color: '#e879f9', text: display };
+        if (label.includes('bus')) return { shape: 'rect', color: '#fb7185', text: display };
+        return { shape: 'rect', color: '#e2e8f0', text: display };
+    }
+
+    function pushTimeline(kind, title, detail) {
+        detectionTimeline.unshift({
+            id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+            ts: Date.now(),
+            kind: String(kind || 'system'),
+            title: String(title || 'Info'),
+            detail: String(detail || '')
+        });
+        while (detectionTimeline.length > 300) detectionTimeline.pop();
+        renderTimeline();
+    }
+
+    function renderTimeline() {
+        const windowMs = (parseInt(timelineWindow.value, 10) || 30) * 1000;
+        const cutoff = Date.now() - windowMs;
+        const allowed = new Set();
+        if (scFDet.checked) allowed.add('detected');
+        if (scFLog.checked) allowed.add('log');
+        if (scFSys.checked) allowed.add('system');
+        const visible = detectionTimeline.filter(x => x.ts >= cutoff && allowed.has(x.kind)).slice(0, 120);
+        detectList.innerHTML = visible.map(x => {
+            const t = new Date(x.ts).toLocaleTimeString();
+            return `<div class="scene-info-item"><div><strong>${x.title}</strong></div><div>${x.detail}</div><div class="scene-info-time">${t}</div></div>`;
+        }).join('');
+    }
+
+    function makeDraggable(panelEl, handleEl) {
+        let dragging = false;
+        let dx = 0;
+        let dy = 0;
+        handleEl.addEventListener('mousedown', (ev) => {
+            dragging = true;
+            const rect = panelEl.getBoundingClientRect();
+            dx = ev.clientX - rect.left;
+            dy = ev.clientY - rect.top;
+        });
+        window.addEventListener('mousemove', (ev) => {
+            if (!dragging) return;
+            const x = Math.max(8, Math.min(window.innerWidth - panelEl.offsetWidth - 8, ev.clientX - dx));
+            const y = Math.max(8, Math.min(window.innerHeight - panelEl.offsetHeight - 8, ev.clientY - dy));
+            panelEl.style.left = `${x}px`;
+            panelEl.style.top = `${y}px`;
+            panelEl.style.right = 'auto';
+        });
+        window.addEventListener('mouseup', () => { dragging = false; });
+    }
+
+    function drawTriangle(ctx, x, y, w, h, color) {
+        ctx.strokeStyle = color; ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x + w / 2, y);
+        ctx.lineTo(x + w, y + h);
+        ctx.lineTo(x, y + h);
+        ctx.closePath();
+        ctx.stroke();
+    }
+    function drawCircle(ctx, x, y, w, h, color) {
+        ctx.strokeStyle = color; ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+    function drawRect(ctx, x, y, w, h, color) {
+        ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.strokeRect(x, y, w, h);
+    }
+
+    function updateTrailTracks(entities, width, height) {
+        const now = Date.now();
+        const expirationMs = 12000;
+        for (const [key, tr] of trailTracks.entries()) {
+            tr.points = tr.points.filter(p => now - p.ts <= expirationMs);
+            if (!tr.points.length || now - tr.lastSeen > expirationMs) trailTracks.delete(key);
+        }
+        (entities || []).forEach(ent => {
+            const bb = ent.bBox || ent.bbox;
+            if (!bb) return;
+            const style = getEntityStyle(ent);
+            const cx = bb.x + bb.width / 2;
+            const cy = bb.y + bb.height / 2;
+            const bucket = `${style.text}:${Math.round(cx / 40)}:${Math.round(cy / 40)}`;
+            let track = trailTracks.get(bucket);
+            if (!track) {
+                track = { id: `${bucket}:${trailPointSeq++}`, style, points: [], lastSeen: now };
+                trailTracks.set(bucket, track);
+            }
+            track.lastSeen = now;
+            track.style = style;
+            track.points.push({ x: Math.max(0, Math.min(width, cx)), y: Math.max(0, Math.min(height, cy)), ts: now });
+            if (track.points.length > 80) track.points.shift();
+        });
+    }
+
+    function drawTrailCanvas(width, height) {
+        if (!trailCanvas) return;
+        trailCanvas.width = Math.max(320, width);
+        trailCanvas.height = 210;
+        const tctx = trailCanvas.getContext('2d');
+        const tw = trailCanvas.width;
+        const th = trailCanvas.height;
+        tctx.clearRect(0, 0, tw, th);
+        tctx.fillStyle = '#041124';
+        tctx.fillRect(0, 0, tw, th);
+        tctx.strokeStyle = 'rgba(77,129,184,0.25)';
+        tctx.lineWidth = 1;
+        for (let x = 0; x < tw; x += 40) { tctx.beginPath(); tctx.moveTo(x, 0); tctx.lineTo(x, th); tctx.stroke(); }
+        for (let y = 0; y < th; y += 30) { tctx.beginPath(); tctx.moveTo(0, y); tctx.lineTo(tw, y); tctx.stroke(); }
+
+        for (const tr of trailTracks.values()) {
+            if (!tr.points.length) continue;
+            tctx.strokeStyle = tr.style.color;
+            tctx.lineWidth = 1.7;
+            tctx.beginPath();
+            tr.points.forEach((p, i) => {
+                const sx = (p.x / Math.max(1, width)) * tw;
+                const sy = (p.y / Math.max(1, height)) * th;
+                if (i === 0) tctx.moveTo(sx, sy); else tctx.lineTo(sx, sy);
+            });
+            tctx.stroke();
+
+            const lp = tr.points[tr.points.length - 1];
+            const bx = (lp.x / Math.max(1, width)) * tw - 8;
+            const by = (lp.y / Math.max(1, height)) * th - 8;
+            if (tr.style.shape === 'triangle') drawTriangle(tctx, bx, by, 16, 16, tr.style.color);
+            else if (tr.style.shape === 'circle') drawCircle(tctx, bx, by, 16, 16, tr.style.color);
+            else if (tr.style.shape === 'square') drawRect(tctx, bx, by, 16, 16, tr.style.color);
+            else drawRect(tctx, bx - 2, by - 2, 20, 12, tr.style.color);
+            tctx.fillStyle = tr.style.color;
+            tctx.font = '10px Segoe UI';
+            tctx.fillText(tr.style.text, bx + 10, by - 2);
+        }
+    }
+
     SceneSharedClient.bindProcessAll(scProcessAll, [scSsd, scFace, scFullbody, scCat]);
+    scProcessAll.addEventListener('change', syncModelOptionVisibility);
+    makeDraggable(infoPanel, infoHead);
+    renderTimeline();
     applyPreset('balanced');
+    syncModelOptionVisibility();
+    applyYoloBestProfileFromApi();
 
     async function refreshDiagnostics() {
         const now = Date.now();
@@ -309,20 +578,28 @@
         entities.forEach(ent => {
             const bb = ent.bBox || ent.bbox;
             if (!bb) return;
-            const col = colors[ent.category] || '#ffffff';
+            const style = getEntityStyle(ent);
+            const col = style.color || colors[ent.category] || '#ffffff';
             octx.strokeStyle = col;
             octx.lineWidth = 2;
-            octx.strokeRect(bb.x, bb.y, bb.width, bb.height);
+            if (style.shape === 'triangle') drawTriangle(octx, bb.x, bb.y, bb.width, bb.height, col);
+            else if (style.shape === 'circle') drawCircle(octx, bb.x, bb.y, bb.width, bb.height, col);
+            else if (style.shape === 'square') drawRect(octx, bb.x, bb.y, Math.min(bb.width, bb.height), Math.min(bb.width, bb.height), col);
+            else drawRect(octx, bb.x, bb.y, bb.width, bb.height, col);
             octx.font = '13px Segoe UI';
             octx.fillStyle = col;
-            const label = `${ent.category}: ${ent.label}`;
+            const label = `${style.text}`;
             octx.fillText(label, bb.x, Math.max(12, bb.y - 4));
-            toastDetection('Detected', `${ent.category} / ${ent.label} (${ent.source || 'n/a'})`);
         });
+        updateTrailTracks(entities, overlay.width, overlay.height);
+        drawTrailCanvas(overlay.width, overlay.height);
+        if (entities.length > 0) {
+            entities.forEach(e => pushTimeline('detected', 'Detected', `${e.label || e.category} (${e.source || 'n/a'})`));
+        }
 
         (data.logs || []).forEach(log => {
             if ((log.level || '').toLowerCase() === 'warning' || (log.level || '').toLowerCase() === 'error') {
-                toastDetection(`Log ${log.level}`, log.message || '');
+                pushTimeline('log', `Log ${log.level}`, log.message || '');
             }
         });
 
@@ -333,7 +610,7 @@
             entities: entities.length,
             notes: sa.notes
         }, null, 2);
-        await refreshDiagnostics();
+        refreshDiagnostics();
     }
 
     const processor = SceneSharedClient.createFrameProcessor({
@@ -360,6 +637,9 @@
         await processor.stop();
         await transport.disconnect();
         await transport.cleanupSession();
+        trailTracks.clear();
+        detectionTimeline.length = 0;
+        renderTimeline();
     });
 })();
 </script>

@@ -6,9 +6,9 @@
 <style>
     .mc-page { background:#060b14; color:#eaf2ff; border:1px solid #1f3d67; border-radius:12px; padding:10px; }
     .mc-top { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; }
-    .mc-stage { position:relative; width:100%; min-height:72vh; background:#02060d; border-radius:10px; overflow:hidden; border:1px solid #21456e; }
+    .mc-stage { position:relative; width:100%; min-height:clamp(220px, 34vh, 360px); background:#02060d; border-radius:10px; overflow:hidden; border:1px solid #21456e; }
     .mc-video, .mc-canvas { position:absolute; inset:0; width:100%; height:100%; }
-    .mc-video { opacity:0.22; }
+    .mc-video { opacity:0.18; }
     .mc-canvas { z-index:2; }
     .mc-hud { position:absolute; left:8px; bottom:8px; z-index:3; display:flex; gap:6px; flex-wrap:wrap; font-size:12px; }
     .mc-badge { background:#0d1f38; border:1px solid #2d5c91; border-radius:999px; padding:4px 10px; }
@@ -30,11 +30,15 @@
     .mc-off { background:#ef4444; box-shadow:0 0 8px #ef4444; }
     .mc-legend { font-size:12px; display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:8px; }
     .mc-legend div { background:#0c1b31; border:1px solid #2e5888; border-radius:8px; padding:6px; }
-    .mc-toast-wrap { position:fixed; right:16px; bottom:16px; z-index:3000; display:flex; flex-direction:column; gap:8px; max-width:340px; }
-    .mc-toast { background:rgba(7,16,29,0.96); color:#d8ecff; border:1px solid #2e6faf; border-radius:8px; padding:8px 10px; box-shadow:0 10px 24px rgba(0,0,0,0.38); animation:mcToastIn .2s ease-out; }
-    .mc-toast .t1 { font-size:12px; font-weight:600; }
-    .mc-toast .t2 { font-size:11px; opacity:.9; }
-    @@keyframes mcToastIn { from { transform:translateY(6px); opacity:0; } to { transform:translateY(0); opacity:1; } }
+    .mc-trail-wrap { margin-top:10px; background:#061224; border:1px solid #21456e; border-radius:10px; padding:8px; }
+    .mc-trail-title { font-size:12px; color:#9ecbff; margin-bottom:6px; }
+    .mc-trail-canvas { width:100%; height:clamp(300px, 48vh, 560px); background:#030a15; border:1px solid #224a74; border-radius:8px; display:block; }
+    .mc-info-panel { position:fixed; right:18px; top:110px; width:320px; max-width:90vw; background:rgba(5,14,26,0.94); border:1px solid #2b5b8f; border-radius:10px; z-index:3200; box-shadow:0 10px 28px rgba(0,0,0,0.35); }
+    .mc-info-head { cursor:move; user-select:none; padding:8px 10px; border-bottom:1px solid #2b5b8f; display:flex; justify-content:space-between; align-items:center; font-size:12px; }
+    .mc-info-body { padding:8px 10px; }
+    .mc-info-list { max-height:210px; overflow:auto; font-size:12px; display:flex; flex-direction:column; gap:6px; }
+    .mc-info-item { background:#0a1d34; border:1px solid #2b5b8f; border-radius:7px; padding:6px; }
+    .mc-info-time { color:#8fbef5; font-size:11px; }
 </style>
 
 <div class="mc-page">
@@ -58,6 +62,7 @@
             <div class="line"><span>Last warning</span><span id="mcLastWarn" class="val">none</span></div>
             <div class="line"><span>Stage split</span><span id="mcDiagSplit" class="val">d:0 p:0 r:0</span></div>
             <div class="line"><span>Source mix</span><span id="mcDiagSources" class="val">—</span></div>
+            <div class="line"><span>Profile source</span><span id="mcProfileSource" class="val">default</span></div>
             <canvas id="mcSpark" class="mc-spark" width="220" height="46"></canvas>
         </div>
 
@@ -109,11 +114,34 @@
                 <label><input id="mcAnimal" type="checkbox" checked /> Animal</label>
                 <label><input id="mcObject" type="checkbox" checked /> Object</label>
                 <label><input id="mcAll" type="checkbox" checked /> Process all models</label>
-                <label><input id="mcSsd" type="checkbox" checked /> SSD</label>
+                <label><input id="mcSsd" type="checkbox" checked /> Primary detector enabled</label>
+            </div>
+            <div id="mcLegacyOptions" class="mc-grid mb-2">
                 <label><input id="mcFace" type="checkbox" checked /> Face cascade</label>
                 <label><input id="mcBody" type="checkbox" checked /> Full-body cascade</label>
                 <label><input id="mcCat" type="checkbox" checked /> Cat cascade</label>
             </div>
+            <label class="form-label mt-2">Scene model backend</label>
+            <select id="mcSceneBackend" class="form-select form-select-sm mb-2">
+                <option value="ssd">MobileNet SSD</option>
+                <option value="yolo" selected>YOLOv8 ONNX (recommended)</option>
+            </select>
+            <label class="form-label">YOLO input size</label>
+            <select id="mcYoloInputSize" class="form-select form-select-sm mb-2">
+                <option value="416">416 (fast)</option>
+                <option value="512">512 (balanced)</option>
+                <option value="640" selected>640 (accurate)</option>
+                <option value="736">736 (high detail)</option>
+            </select>
+            <label class="form-label">YOLO confidence threshold</label>
+            <input id="mcSsdThresh" type="range" min="0.05" max="0.95" step="0.01" value="0.40" class="form-range" />
+            <small class="text-muted d-block mb-2"><span id="mcSsdThreshVal">0.40</span> (calibrated)</small>
+            <label class="form-label">YOLO NMS threshold</label>
+            <input id="mcYoloNms" type="range" min="0.25" max="0.75" step="0.01" value="0.45" class="form-range" />
+            <small class="text-muted d-block mb-2"><span id="mcYoloNmsVal">0.45</span></small>
+            <small class="text-muted d-block mb-2">
+                YOLO detects 80 COCO classes (people, vehicles, animals, daily objects).
+            </small>
             <div class="mc-status-grid">
                 <div class="mc-status-item"><span class="mc-dot mc-off" id="mcStSsd"></span>SSD model</div>
                 <div class="mc-status-item"><span class="mc-dot mc-off" id="mcStFace"></span>Face cascade</div>
@@ -132,8 +160,28 @@
             </div>
         </aside>
     </div>
+    <div class="mc-trail-wrap">
+        <div class="mc-trail-title">Trail Analytics Canvas (shape + color coded objects)</div>
+        <canvas id="mcTrailCanvas" class="mc-trail-canvas"></canvas>
+    </div>
 </div>
-<div id="mcToastWrap" class="mc-toast-wrap"></div>
+<div id="mcInfoPanel" class="mc-info-panel">
+    <div id="mcInfoHead" class="mc-info-head">
+        <strong>Detection Timeline</strong>
+        <span id="mcInfoHint">drag</span>
+    </div>
+    <div class="mc-info-body">
+        <label class="form-label mb-1">Window (<span id="mcTimelineWindowVal">30</span>s)</label>
+        <input id="mcTimelineWindow" type="range" min="10" max="180" step="5" value="30" class="form-range" />
+        <div class="d-flex gap-2 small mb-2">
+            <label><input id="mcFDet" type="checkbox" checked /> Objects</label>
+            <label><input id="mcFHand" type="checkbox" checked /> Hands</label>
+            <label><input id="mcFLog" type="checkbox" checked /> Logs</label>
+            <label><input id="mcFSys" type="checkbox" checked /> System</label>
+        </div>
+        <div id="mcDetectList" class="mc-info-list"></div>
+    </div>
+</div>
 
 @section Scripts {
 <script src="~/js/sceneSharedClient.js"></script>
@@ -152,7 +200,16 @@
     const presetSel = document.getElementById('mcPreset');
     const grayChk = document.getElementById('mcGray');
     const jsonOut = document.getElementById('mcJson');
-    const toastWrap = document.getElementById('mcToastWrap');
+    const trailCanvas = document.getElementById('mcTrailCanvas');
+    const detectList = document.getElementById('mcDetectList');
+    const timelineWindow = document.getElementById('mcTimelineWindow');
+    const timelineWindowVal = document.getElementById('mcTimelineWindowVal');
+    const mcFDet = document.getElementById('mcFDet');
+    const mcFHand = document.getElementById('mcFHand');
+    const mcFLog = document.getElementById('mcFLog');
+    const mcFSys = document.getElementById('mcFSys');
+    const infoPanel = document.getElementById('mcInfoPanel');
+    const infoHead = document.getElementById('mcInfoHead');
     const mcStSsd = document.getElementById('mcStSsd');
     const mcStFace = document.getElementById('mcStFace');
     const mcStBody = document.getElementById('mcStBody');
@@ -163,11 +220,17 @@
     const mcLastWarn = document.getElementById('mcLastWarn');
     const mcDiagSplit = document.getElementById('mcDiagSplit');
     const mcDiagSources = document.getElementById('mcDiagSources');
+    const mcProfileSource = document.getElementById('mcProfileSource');
     const mcSpark = document.getElementById('mcSpark');
+    const mcLegacyOptions = document.getElementById('mcLegacyOptions');
     let fpsFrames = 0, fpsStart = performance.now();
     let droppedFrames = 0;
     let lastDiagFetchAt = 0;
+    let lowFpsStreak = 0;
     const frameMsHistory = [];
+    const trailTracks = new Map();
+    const detectionTimeline = [];
+    let trailPointSeq = 0;
 
     const opts = {
         human: document.getElementById('mcHuman'),
@@ -177,13 +240,44 @@
         ssd: document.getElementById('mcSsd'),
         face: document.getElementById('mcFace'),
         body: document.getElementById('mcBody'),
-        cat: document.getElementById('mcCat')
+        cat: document.getElementById('mcCat'),
+        sceneModelBackend: document.getElementById('mcSceneBackend'),
+        yoloInputSize: document.getElementById('mcYoloInputSize'),
+        yoloNmsThreshold: document.getElementById('mcYoloNms')
     };
 
     sidInput.value = `mc-${crypto.randomUUID().slice(0, 8)}`;
     panelToggle.addEventListener('click', () => panel.classList.toggle('open'));
     fpsInput.addEventListener('input', () => fpsVal.textContent = Number(fpsInput.value).toFixed(1));
+    opts.yoloNmsThreshold.addEventListener('input', () => {
+        document.getElementById('mcYoloNmsVal').textContent = Number(opts.yoloNmsThreshold.value).toFixed(2);
+    });
+    const mcSsdThresh = document.getElementById('mcSsdThresh');
+    const mcSsdThreshVal = document.getElementById('mcSsdThreshVal');
+    mcSsdThresh.addEventListener('input', () => {
+        mcSsdThreshVal.textContent = Number(mcSsdThresh.value).toFixed(2);
+    });
+    timelineWindow.addEventListener('input', () => {
+        timelineWindowVal.textContent = timelineWindow.value;
+        renderTimeline();
+    });
+    [mcFDet, mcFHand, mcFLog, mcFSys].forEach(el => el.addEventListener('change', renderTimeline));
     presetSel.addEventListener('change', () => applyPreset(presetSel.value));
+    opts.sceneModelBackend.addEventListener('change', () => {
+        if (String(opts.sceneModelBackend.value).toLowerCase() === 'yolo') {
+            opts.ssd.checked = true;
+            if (presetSel.value !== 'allDetail') {
+                opts.cat.checked = false;
+            }
+        }
+        syncModelOptionVisibility();
+    });
+
+    function syncModelOptionVisibility() {
+        const isYolo = String(opts.sceneModelBackend.value).toLowerCase() === 'yolo';
+        const showLegacy = !isYolo || opts.all.checked;
+        mcLegacyOptions.style.display = showLegacy ? 'grid' : 'none';
+    }
 
     function b() { return apiBase.value.replace(/\/$/, ''); }
     function sid() { return sidInput.value.trim(); }
@@ -201,29 +295,134 @@
             ssd: opts.ssd,
             face: opts.face,
             fullBody: opts.body,
-            cat: opts.cat
+            cat: opts.cat,
+            ssdConfidenceThreshold: mcSsdThresh,
+            yoloInputSize: opts.yoloInputSize,
+            yoloNmsThreshold: opts.yoloNmsThreshold
+            , sceneModelBackend: opts.sceneModelBackend
         });
     }
 
     function applyPreset(preset) {
         const p = preset || 'balanced';
+        opts.sceneModelBackend.value = 'yolo';
         if (p === 'humanFocus') {
             opts.human.checked = true; opts.animal.checked = false; opts.object.checked = false;
             opts.all.checked = false; opts.ssd.checked = false; opts.face.checked = true; opts.body.checked = true; opts.cat.checked = false;
+            mcSsdThresh.value = '0.50';
         } else if (p === 'animalStrict') {
             opts.human.checked = true; opts.animal.checked = true; opts.object.checked = false;
             opts.all.checked = false; opts.ssd.checked = true; opts.face.checked = true; opts.body.checked = false; opts.cat.checked = true;
+            mcSsdThresh.value = '0.52';
         } else if (p === 'allDetail') {
             opts.human.checked = true; opts.animal.checked = true; opts.object.checked = true;
             opts.all.checked = true; opts.ssd.checked = true; opts.face.checked = true; opts.body.checked = true; opts.cat.checked = true;
+            mcSsdThresh.value = '0.30';
         } else {
+            // Balanced default: YOLO primary with minimal cascade overhead for better realtime behavior.
             opts.human.checked = true; opts.animal.checked = true; opts.object.checked = true;
-            opts.all.checked = true; opts.ssd.checked = true; opts.face.checked = true; opts.body.checked = true; opts.cat.checked = true;
+            opts.all.checked = false; opts.ssd.checked = true; opts.face.checked = false; opts.body.checked = false; opts.cat.checked = false;
+            mcSsdThresh.value = '0.40';
+        }
+        mcSsdThreshVal.textContent = Number(mcSsdThresh.value).toFixed(2);
+    }
+
+    async function applyYoloBestProfileFromApi() {
+        try {
+            const r = await fetch(`${b()}/api/detection/yolo-best-profile`);
+            if (!r.ok) {
+                mcProfileSource.textContent = r.status === 404 ? 'default' : 'offline';
+                return;
+            }
+            const profile = await r.json();
+            const options = profile?.sceneOptions || {};
+            if (String(options.sceneModelBackend || '').toLowerCase() === 'yolo') {
+                opts.sceneModelBackend.value = 'yolo';
+            }
+            if (Number.isFinite(Number(options.ssdConfidenceThreshold))) {
+                mcSsdThresh.value = String(Number(options.ssdConfidenceThreshold).toFixed(2));
+            }
+            if (Number.isFinite(Number(options.yoloInputSize))) {
+                opts.yoloInputSize.value = String(parseInt(options.yoloInputSize, 10));
+            }
+            if (Number.isFinite(Number(options.yoloNmsThreshold))) {
+                opts.yoloNmsThreshold.value = String(Number(options.yoloNmsThreshold).toFixed(2));
+                document.getElementById('mcYoloNmsVal').textContent = Number(opts.yoloNmsThreshold.value).toFixed(2);
+            }
+            mcSsdThreshVal.textContent = Number(mcSsdThresh.value).toFixed(2);
+            mcProfileSource.textContent = 'calibrated';
+            pushTimeline('system', 'YOLO profile', `Loaded calibrated profile (${mcSsdThresh.value})`);
+        } catch {
+            // Optional profile; keep local defaults when unavailable.
+            mcProfileSource.textContent = 'offline';
         }
     }
 
     function setDot(el, on) {
         SceneSharedClient.setStatusDot(el, on, 'mc-on', 'mc-off');
+    }
+
+    function getEntityStyle(ent) {
+        const label = String(ent?.label || '').toLowerCase();
+        const cat = String(ent?.category || '').toLowerCase();
+        const display = String(ent?.label || ent?.category || 'object');
+        if (label.includes('face')) return { shape: 'circle', color: '#2ee66b', text: display };
+        if (label.includes('person') || cat === 'human') return { shape: 'circle', color: '#ffe45e', text: display };
+        if (label.includes('car')) return { shape: 'triangle', color: '#ff4d4d', text: display };
+        if (label.includes('bike') || label.includes('bicycle') || label.includes('motorbike')) return { shape: 'rect', color: '#ff7f50', text: display };
+        if (label.includes('cat')) return { shape: 'circle', color: '#4da6ff', text: display };
+        if (label.includes('dog')) return { shape: 'square', color: '#5dff7a', text: display };
+        if (label.includes('truck')) return { shape: 'rect', color: '#e879f9', text: display };
+        if (label.includes('bus')) return { shape: 'rect', color: '#fb7185', text: display };
+        return { shape: 'rect', color: '#e2e8f0', text: display };
+    }
+
+    function pushTimeline(kind, title, detail) {
+        detectionTimeline.unshift({
+            id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+            ts: Date.now(),
+            kind: String(kind || 'system'),
+            title: String(title || 'Info'),
+            detail: String(detail || '')
+        });
+        while (detectionTimeline.length > 300) detectionTimeline.pop();
+        renderTimeline();
+    }
+
+    function renderTimeline() {
+        const windowMs = (parseInt(timelineWindow.value, 10) || 30) * 1000;
+        const cutoff = Date.now() - windowMs;
+        const allowed = new Set();
+        if (mcFDet.checked) allowed.add('detected');
+        if (mcFHand.checked) allowed.add('hand');
+        if (mcFLog.checked) allowed.add('log');
+        if (mcFSys.checked) allowed.add('system');
+        const visible = detectionTimeline.filter(x => x.ts >= cutoff && allowed.has(x.kind)).slice(0, 120);
+        detectList.innerHTML = visible.map(x => {
+            const t = new Date(x.ts).toLocaleTimeString();
+            return `<div class="mc-info-item"><div><strong>${x.title}</strong></div><div>${x.detail}</div><div class="mc-info-time">${t}</div></div>`;
+        }).join('');
+    }
+
+    function makeDraggable(panelEl, handleEl) {
+        let dragging = false;
+        let dx = 0;
+        let dy = 0;
+        handleEl.addEventListener('mousedown', (ev) => {
+            dragging = true;
+            const rect = panelEl.getBoundingClientRect();
+            dx = ev.clientX - rect.left;
+            dy = ev.clientY - rect.top;
+        });
+        window.addEventListener('mousemove', (ev) => {
+            if (!dragging) return;
+            const x = Math.max(8, Math.min(window.innerWidth - panelEl.offsetWidth - 8, ev.clientX - dx));
+            const y = Math.max(8, Math.min(window.innerHeight - panelEl.offsetHeight - 8, ev.clientY - dy));
+            panelEl.style.left = `${x}px`;
+            panelEl.style.top = `${y}px`;
+            panelEl.style.right = 'auto';
+        });
+        window.addEventListener('mouseup', () => { dragging = false; });
     }
 
     function updateSummary(sa, ms) {
@@ -281,12 +480,6 @@
         ctx.stroke();
     }
 
-    const toast = SceneSharedClient.createToaster({
-        wrap: toastWrap,
-        toastClass: 'mc-toast',
-        titleClass: 't1',
-        metaClass: 't2'
-    });
     const transport = SceneSharedClient.createDetectionTransport({
         getBaseUrl: () => b(),
         getSessionId: () => sid()
@@ -324,20 +517,70 @@
         ctx.stroke();
     }
 
+    function normalizeToPixels(value, boxStart, boxSize, maxSize) {
+        if (value >= 0 && value <= 1) return boxStart + value * boxSize;
+        return Math.max(0, Math.min(maxSize, value));
+    }
+
+    function drawHandSkeleton(ctx, hand, color = '#7fffd4') {
+        const box = hand?.bBox || hand?.bbox;
+        const points = hand?.landmarks || hand?.gesture?.keyPoints || [];
+        if (!box || !Array.isArray(points) || points.length < 2) return;
+
+        const scaled = points
+            .filter(p => typeof p?.x === 'number' && typeof p?.y === 'number')
+            .map(p => ({
+                x: normalizeToPixels(p.x, box.x, box.width, canvas.width),
+                y: normalizeToPixels(p.y, box.y, box.height, canvas.height)
+            }));
+        if (scaled.length < 2) return;
+
+        const chains = [
+            [0, 1], [1, 2], [2, 3], [3, 4],
+            [0, 5], [5, 6], [6, 7], [7, 8],
+            [0, 9], [9, 10], [10, 11], [11, 12],
+            [0, 13], [13, 14], [14, 15], [15, 16],
+            [0, 17], [17, 18], [18, 19], [19, 20],
+            [5, 9], [9, 13], [13, 17]
+        ];
+
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.6;
+        chains.forEach(([a, b]) => {
+            if (a >= scaled.length || b >= scaled.length) return;
+            ctx.beginPath();
+            ctx.moveTo(scaled[a].x, scaled[a].y);
+            ctx.lineTo(scaled[b].x, scaled[b].y);
+            ctx.stroke();
+        });
+
+        ctx.fillStyle = color;
+        scaled.forEach((p, i) => {
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, i === 0 ? 3 : 2.2, 0, Math.PI * 2);
+            ctx.fill();
+        });
+
+        const tips = [
+            { i: 4, label: 'Thumb' }, { i: 8, label: 'Index' }, { i: 12, label: 'Middle' },
+            { i: 16, label: 'Ring' }, { i: 20, label: 'Pinky' }
+        ];
+        ctx.fillStyle = '#d8ecff';
+        ctx.font = '10px Segoe UI';
+        tips.forEach(t => {
+            if (t.i >= scaled.length) return;
+            const p = scaled[t.i];
+            ctx.fillText(t.label, p.x + 4, p.y - 4);
+        });
+        ctx.restore();
+    }
+
     function drawEntity(ctx, ent) {
         const bb = ent.bBox || ent.bbox;
         if (!bb) return;
         const x = bb.x, y = bb.y, w = bb.width, h = bb.height;
-        const label = String(ent.label || '').toLowerCase();
-        const cat = String(ent.category || '').toLowerCase();
-
-        let shape = 'rect', color = '#ffffff', text = `${ent.category}:${ent.label}`;
-        if (label.includes('face')) { shape = 'circle'; color = '#2ee66b'; text = 'Face'; }
-        else if (label.includes('person') || cat === 'human') { shape = 'circle'; color = '#ffe45e'; text = 'Human'; }
-        else if (label.includes('car')) { shape = 'triangle'; color = '#ff4d4d'; text = 'Car'; }
-        else if (label.includes('bike') || label.includes('bicycle') || label.includes('motorbike')) { shape = 'rect'; color = '#ff4d4d'; text = 'Bike'; }
-        else if (label.includes('cat')) { shape = 'circle'; color = '#4da6ff'; text = 'Cat'; }
-        else if (label.includes('dog') || label.includes('dag')) { shape = 'square'; color = '#5dff7a'; text = 'Dog'; }
+        const { shape, color, text } = getEntityStyle(ent);
 
         if (shape === 'triangle') drawTriangle(ctx, x, y, w, h, color);
         else if (shape === 'circle') drawCircle(ctx, x, y, w, h, color);
@@ -350,6 +593,74 @@
         ctx.fillText(text, x, Math.max(12, y - 4));
     }
 
+    function updateTrailTracks(entities, width, height) {
+        const now = Date.now();
+        const expirationMs = 12000;
+        for (const [key, tr] of trailTracks.entries()) {
+            tr.points = tr.points.filter(p => now - p.ts <= expirationMs);
+            if (!tr.points.length || now - tr.lastSeen > expirationMs) trailTracks.delete(key);
+        }
+
+        (entities || []).forEach(ent => {
+            const bb = ent.bBox || ent.bbox;
+            if (!bb) return;
+            const style = getEntityStyle(ent);
+            const cx = bb.x + bb.width / 2;
+            const cy = bb.y + bb.height / 2;
+            const bucket = `${style.text}:${Math.round(cx / 40)}:${Math.round(cy / 40)}`;
+            let track = trailTracks.get(bucket);
+            if (!track) {
+                track = { id: `${bucket}:${trailPointSeq++}`, style, points: [], lastSeen: now, box: bb };
+                trailTracks.set(bucket, track);
+            }
+            track.lastSeen = now;
+            track.box = bb;
+            track.style = style;
+            track.points.push({ x: Math.max(0, Math.min(width, cx)), y: Math.max(0, Math.min(height, cy)), ts: now });
+            if (track.points.length > 80) track.points.shift();
+        });
+    }
+
+    function drawTrailCanvas(width, height) {
+        if (!trailCanvas) return;
+        trailCanvas.width = Math.max(320, width);
+        trailCanvas.height = 220;
+        const tctx = trailCanvas.getContext('2d');
+        const tw = trailCanvas.width;
+        const th = trailCanvas.height;
+        tctx.clearRect(0, 0, tw, th);
+        tctx.fillStyle = '#041124';
+        tctx.fillRect(0, 0, tw, th);
+        tctx.strokeStyle = 'rgba(77,129,184,0.25)';
+        tctx.lineWidth = 1;
+        for (let x = 0; x < tw; x += 40) { tctx.beginPath(); tctx.moveTo(x, 0); tctx.lineTo(x, th); tctx.stroke(); }
+        for (let y = 0; y < th; y += 30) { tctx.beginPath(); tctx.moveTo(0, y); tctx.lineTo(tw, y); tctx.stroke(); }
+
+        for (const tr of trailTracks.values()) {
+            if (!tr.points.length) continue;
+            tctx.strokeStyle = tr.style.color;
+            tctx.lineWidth = 1.7;
+            tctx.beginPath();
+            tr.points.forEach((p, i) => {
+                const sx = (p.x / Math.max(1, width)) * tw;
+                const sy = (p.y / Math.max(1, height)) * th;
+                if (i === 0) tctx.moveTo(sx, sy); else tctx.lineTo(sx, sy);
+            });
+            tctx.stroke();
+
+            const lp = tr.points[tr.points.length - 1];
+            const bx = (lp.x / Math.max(1, width)) * tw - 8;
+            const by = (lp.y / Math.max(1, height)) * th - 8;
+            if (tr.style.shape === 'triangle') drawTriangle(tctx, bx, by, 16, 16, tr.style.color);
+            else if (tr.style.shape === 'circle') drawCircle(tctx, bx, by, 16, 16, tr.style.color);
+            else if (tr.style.shape === 'square') drawRect(tctx, bx, by, 16, 16, tr.style.color);
+            else drawRect(tctx, bx - 2, by - 2, 20, 12, tr.style.color);
+            tctx.fillStyle = tr.style.color;
+            tctx.font = '10px Segoe UI';
+            tctx.fillText(tr.style.text, bx + 10, by - 2);
+        }
+    }
+
     async function refreshDiagnostics() {
         const now = Date.now();
         if (now - lastDiagFetchAt < 2000) return;
@@ -360,9 +671,21 @@
             const d = await r.json();
             const avg = d.averageTimings || {};
             const src = d.lastEntityBySource || {};
+            const mp = d.modulePerformance || {};
             const topSources = Object.entries(src).slice(0, 3).map(([k, v]) => `${k}:${v}`).join(', ');
             mcDiagSplit.textContent = `d:${Number(avg.decodeMs || 0).toFixed(1)} p:${Number(avg.detectionMs || 0).toFixed(1)} r:${Number(avg.renderMs || 0).toFixed(1)}`;
-            mcDiagSources.textContent = topSources || 'none';
+            mcDiagSources.textContent = `${topSources || 'none'} | face:${Number(mp.face?.fps || 0).toFixed(1)} hand:${Number(mp.hand?.fps || 0).toFixed(1)} scene:${Number(mp.scene?.fps || 0).toFixed(1)}`;
+            const sceneFps = Number(mp.scene?.fps || 0);
+            const targetFps = Number(fpsInput.value || 20);
+            if (sceneFps > 0 && sceneFps < targetFps * 0.6) {
+                lowFpsStreak++;
+                if (lowFpsStreak >= 3) {
+                    mcLastWarn.textContent = `Sustained FPS drop: ${sceneFps.toFixed(1)} < ${targetFps.toFixed(1)}`;
+                    mcLastWarn.className = 'val warn';
+                }
+            } else {
+                lowFpsStreak = 0;
+            }
         } catch {
             // Keep UI responsive if diagnostics request fails.
         }
@@ -409,14 +732,25 @@
         updateSummary(sa, ms);
         const ctx = canvas.getContext('2d');
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        (sa.entities || []).forEach(e => {
+        const entities = (sa.entities || []);
+        entities.forEach(e => {
             drawEntity(ctx, e);
-            toast('Detected', `${e.category || 'n/a'} / ${e.label || 'n/a'} (${e.source || 'n/a'})`);
         });
+        updateTrailTracks(entities, canvas.width, canvas.height);
+        drawTrailCanvas(canvas.width, canvas.height);
+        if (entities.length > 0) {
+            entities.forEach(e => pushTimeline('detected', 'Detected', `${e.label || e.category} (${e.source || 'n/a'})`));
+        }
+        (data?.detections?.hands || []).forEach(h => {
+            drawHandSkeleton(ctx, h, '#7fffd4');
+        });
+        if ((data?.detections?.hands || []).length > 0) {
+            pushTimeline('hand', 'Hands', `${(data?.detections?.hands || []).length} hand skeleton(s)`);
+        }
         (data.logs || []).forEach(log => {
             const lv = String(log.level || '').toLowerCase();
             if (lv === 'warning' || lv === 'error') {
-                toast(`Log ${log.level || 'Warning'}`, log.message || '');
+                pushTimeline('log', `Log ${log.level || 'Warning'}`, log.message || '');
                 mcLastWarn.textContent = (log.message || 'warning').slice(0, 42);
                 mcLastWarn.className = lv === 'error' ? 'val bad' : 'val warn';
             }
@@ -428,7 +762,7 @@
             document.getElementById('mcFpsNow').textContent = ((fpsFrames * 1000) / elapsed).toFixed(1);
             fpsFrames = 0; fpsStart = now;
         }
-        await refreshDiagnostics();
+        refreshDiagnostics();
         jsonOut.textContent = JSON.stringify({
             pipeline: sa.pipeline, frameProcessingMs: sa.frameProcessingMs, summary: sa.summary, entities: (sa.entities || []).length
         }, null, 2);
@@ -454,6 +788,9 @@
         mcLastWarn.className = 'val';
         mcDiagSplit.textContent = 'd:0 p:0 r:0';
         mcDiagSources.textContent = '—';
+        trailTracks.clear();
+        detectionTimeline.length = 0;
+        renderTimeline();
         drawSparkline();
         await processor.start();
         processor.resetFrameCounter();
@@ -467,7 +804,12 @@
     });
 
     SceneSharedClient.bindProcessAll(opts.all, [opts.ssd, opts.face, opts.body, opts.cat]);
+    opts.all.addEventListener('change', syncModelOptionVisibility);
+    makeDraggable(infoPanel, infoHead);
+    renderTimeline();
     applyPreset('balanced');
+    syncModelOptionVisibility();
+    applyYoloBestProfileFromApi();
 })();
 </script>
 }

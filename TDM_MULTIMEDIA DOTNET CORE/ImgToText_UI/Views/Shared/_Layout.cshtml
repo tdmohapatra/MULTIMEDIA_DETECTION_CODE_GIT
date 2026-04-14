@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8" />
@@ -37,6 +37,14 @@
                             </ul>
                         </li>
                     </ul>
+                    <div class="d-flex align-items-center gap-2">
+                        <label class="small text-light mb-0" for="uiThemeSelect">Theme</label>
+                        <select id="uiThemeSelect" class="form-select form-select-sm" style="min-width:140px;">
+                            <option value="theme-cyberpunk">Cyberpunk</option>
+                            <option value="theme-neon">Neon</option>
+                            <option value="theme-minimal">Minimal</option>
+                        </select>
+                    </div>
                 </div>
             </div>
         </nav>
@@ -59,6 +67,26 @@
     <script src="~/lib/jquery/dist/jquery.min.js"></script>
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script src="~/js/site.js" asp-append-version="true"></script>
+    <script>
+        (function () {
+            const storageKey = 'unified-theme';
+            const select = document.getElementById('uiThemeSelect');
+            const allowed = ['theme-cyberpunk', 'theme-neon', 'theme-minimal'];
+            const saved = localStorage.getItem(storageKey);
+            const theme = allowed.includes(saved) ? saved : 'theme-cyberpunk';
+            document.body.classList.remove(...allowed);
+            document.body.classList.add(theme);
+            if (select) {
+                select.value = theme;
+                select.addEventListener('change', () => {
+                    const next = allowed.includes(select.value) ? select.value : 'theme-cyberpunk';
+                    document.body.classList.remove(...allowed);
+                    document.body.classList.add(next);
+                    localStorage.setItem(storageKey, next);
+                });
+            }
+        })();
+    </script>
     @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Microsoft.ML.OnnxRuntime;
 using OpenCvSharp;
 using OpenCvSharp.Dnn;
 using OpenCvSharp.Extensions;
@@ -39,9 +40,13 @@ namespace STAR_MUTIMEDIA.Services
         private readonly CascadeClassifier _LicencePlate;
         private readonly CascadeClassifier _catFaceCascade;
         private Net? _mobileNetSsd;
+        private Net? _yoloV8Net;
         private readonly object _ssdLoadLock = new object();
+        private readonly object _yoloLoadLock = new object();
         private bool _mobileNetSsdLoadFailed;
+        private bool _yoloLoadFailed;
         private readonly List<IDetectionPlugin> _detectionPlugins;
+        private readonly string _inferenceProvider;
 
         public RealTimeDetectionService(string tessDataPath)
         {
@@ -76,6 +81,36 @@ namespace STAR_MUTIMEDIA.Services
 
             // Initialize available monitoring options
             _availableMonitoringOptions = InitializeMonitoringOptions();
+            _inferenceProvider = DetermineInferenceProvider();
+            WarmupModels();
+        }
+
+        private static string DetermineInferenceProvider()
+        {
+            try
+            {
+                using var opts = new Microsoft.ML.OnnxRuntime.SessionOptions();
+                // Runtime probe for DirectML-capable environment. If provider append fails, fallback to CPU.
+                opts.AppendExecutionProvider_DML(0);
+                return "directml";
+            }
+            catch
+            {
+                return "cpu";
+            }
+        }
+
+        private void WarmupModels()
+        {
+            try
+            {
+                _ = GetOrLoadMobileNetSsd();
+                _ = GetOrLoadYoloV8();
+            }
+            catch
+            {
+                // Warmup failures are non-fatal; runtime will continue with available models.
+            }
         }
 
         private string GetCascadesPath()
@@ -362,6 +397,7 @@ namespace STAR_MUTIMEDIA.Services
                 result.MonitoringState = monitoringState;
                 result.HumanTracking = BuildHumanTrackingState(session, detectionData, session.Stats);
                 result.BehaviorAnalysis = BuildBehaviorAnalysis(detectionData, session.Stats, monitoringState);
+                AppendIntelligenceEvents(session, monitoringState, detectionData, result.BehaviorAnalysis);
                 result.StageTimings = stageTimings;
                 result.DetectorHealth = GetDetectorHealth(sessionId);
                 if (string.Equals(frameData.ProcessingMode, "scene", StringComparison.OrdinalIgnoreCase))
@@ -697,7 +733,8 @@ namespace STAR_MUTIMEDIA.Services
             var est = ht.ActiveFaceTracks;
             if (est == 0 && ht.ActiveHandTracks > 0)
                 est = 1;
-            ht.EstimatedPersonCount = est;
+            var cap = Math.Max(1, session?.Settings?.MaxTrackedPeople ?? 2);
+            ht.EstimatedPersonCount = Math.Min(est, cap);
 
             var subjects = new List<SubjectTrackSnapshot>();
 
@@ -881,14 +918,102 @@ namespace STAR_MUTIMEDIA.Services
             }
         }
 
+        private static void AppendIntelligenceEvents(
+            SessionData session,
+            MonitoringState monitoringState,
+            DetectionData detectionData,
+            BehaviorAnalysis behavior)
+        {
+            if (session == null || monitoringState == null)
+            {
+                return;
+            }
+
+            if (monitoringState.OneEyeClosed)
+            {
+                session.PushEvent(new IntelligenceEvent
+                {
+                    Type = "eye_close_alert",
+                    Severity = "Warning",
+                    Message = $"One eye closed: {monitoringState.OneEyeClosedSide}",
+                    TimestampUtc = DateTime.UtcNow,
+                    Context = new Dictionary<string, string>
+                    {
+                        ["sessionId"] = session.SessionId,
+                        ["side"] = monitoringState.OneEyeClosedSide ?? "unknown"
+                    }
+                });
+            }
+
+            if (!string.IsNullOrWhiteSpace(monitoringState.StableGesture)
+                && monitoringState.StableGesture.Contains("Raised", StringComparison.OrdinalIgnoreCase))
+            {
+                session.PushEvent(new IntelligenceEvent
+                {
+                    Type = "hand_raise_trigger",
+                    Severity = "Info",
+                    Message = "Hand raise trigger fired",
+                    TimestampUtc = DateTime.UtcNow,
+                    Context = new Dictionary<string, string>
+                    {
+                        ["sessionId"] = session.SessionId,
+                        ["gesture"] = monitoringState.StableGesture
+                    }
+                });
+            }
+
+            if (behavior != null && behavior.EngagementLevel < 25)
+            {
+                session.PushEvent(new IntelligenceEvent
+                {
+                    Type = "attention_drop",
+                    Severity = "Warning",
+                    Message = "Attention level dropped below threshold",
+                    TimestampUtc = DateTime.UtcNow,
+                    Context = new Dictionary<string, string>
+                    {
+                        ["sessionId"] = session.SessionId,
+                        ["engagement"] = behavior.EngagementLevel.ToString("0.0")
+                    }
+                });
+            }
+
+            var hands = detectionData?.Hands?.Count ?? 0;
+            var objects = detectionData?.Objects?.Count ?? 0;
+            if (hands > 0 && objects > 0)
+            {
+                session.PushEvent(new IntelligenceEvent
+                {
+                    Type = "context_fusion",
+                    Severity = "Info",
+                    Message = "Person/gesture/object context fused",
+                    TimestampUtc = DateTime.UtcNow,
+                    Context = new Dictionary<string, string>
+                    {
+                        ["sessionId"] = session.SessionId,
+                        ["hands"] = hands.ToString(),
+                        ["objects"] = objects.ToString()
+                    }
+                });
+            }
+        }
+
         private bool ShouldSkipFrame(SessionData session)
         {
             if (!session.Settings.EnableFrameRateControl)
                 return false;
 
+            if (session.AdaptiveSkipCountdown > 0)
+            {
+                session.AdaptiveSkipCountdown--;
+                session.ScheduledSkipCount++;
+                return true;
+            }
+
             if (session.FramesToSkip > 0)
             {
                 session.FramesToSkip--;
+                session.ScheduledSkipCount++;
                 return true;
             }
 
@@ -902,12 +1027,19 @@ namespace STAR_MUTIMEDIA.Services
 
                 if (timeSinceLastFrame < targetFrameTime)
                 {
+                    session.ScheduledSkipCount++;
                     return true;
                 }
             }
 
             session.LastFrameTime = currentTime;
             return false;
+        }
+
+        private bool ShouldRunHeavyModule(SessionData session, int interval)
+        {
+            var effective = Math.Max(1, interval);
+            return (session.FrameSequence % effective) == 0;
         }
 
         private void UpdateProcessingTime(SessionData session, double processingTimeMs)
@@ -938,6 +1070,9 @@ namespace STAR_MUTIMEDIA.Services
             var processedFrame = frame.Clone();
             var stats = session.Stats;
             var config = session.MonitoringConfig;
+            session.FrameSequence++;
+            var runHeavy = !session.Settings.EnableRoiScheduling || ShouldRunHeavyModule(session, session.Settings.SchedulerHeavyFrameInterval);
+            var runScene = !session.Settings.EnableRoiScheduling || ShouldRunHeavyModule(session, session.Settings.SchedulerSceneFrameInterval);
 
             try
             {
@@ -965,13 +1100,19 @@ namespace STAR_MUTIMEDIA.Services
                     // Face detection
                     if (IsMonitoringEnabled(config, "FaceDetection"))
                     {
+                        var faceStart = Stopwatch.StartNew();
                         SafeFaceDetection(processedFrame, grayFrame, session, stats, notifications, logs, detectionData);
+                        faceStart.Stop();
+                        session.AddModuleTiming(session.FaceModuleMs, faceStart.Elapsed.TotalMilliseconds);
                     }
 
                     // Hand detection
-                    if (IsMonitoringEnabled(config, "HandDetection"))
+                    if (IsMonitoringEnabled(config, "HandDetection") && runHeavy)
                     {
+                        var handStart = Stopwatch.StartNew();
                         SafeHandDetection(processedFrame, grayFrame, session, stats, notifications, logs, detectionData);
+                        handStart.Stop();
+                        session.AddModuleTiming(session.HandModuleMs, handStart.Elapsed.TotalMilliseconds);
                     }
 
                     // Movement detection
@@ -981,14 +1122,20 @@ namespace STAR_MUTIMEDIA.Services
                     }
 
                     // Text detection every 15 frames (for performance)
-                    if (IsMonitoringEnabled(config, "TextDetection") && stats.TotalFramesProcessed % 15 == 0)
+                    if (IsMonitoringEnabled(config, "TextDetection") && runHeavy && stats.TotalFramesProcessed % 15 == 0)
                     {
+                        var ocrStart = Stopwatch.StartNew();
                         SafeTextDetection(processedFrame, stats, notifications, logs, session, detectionData);
+                        ocrStart.Stop();
+                        session.AddModuleTiming(session.OcrModuleMs, ocrStart.Elapsed.TotalMilliseconds);
                     }
 
-                    if (string.Equals(processingMode, "scene", StringComparison.OrdinalIgnoreCase))
+                    if (string.Equals(processingMode, "scene", StringComparison.OrdinalIgnoreCase) && runScene)
                     {
+                        var sceneStart = Stopwatch.StartNew();
                         RunSceneEntityDetection(processedFrame, grayFrame, session, detectionData, logs, sceneOptions);
+                        sceneStart.Stop();
+                        session.AddModuleTiming(session.SceneModuleMs, sceneStart.Elapsed.TotalMilliseconds);
                     }
                     else
                     {
@@ -1010,6 +1157,11 @@ namespace STAR_MUTIMEDIA.Services
                     // Update memory usage (approximate)
                     stats.MemoryUsageMB = Process.GetCurrentProcess().WorkingSet64 / (1024 * 1024);
                     stats.IsSystemOptimal = stats.ActualProcessingFPS >= stats.TargetFPS * 0.7;
+
+                    if (stats.AverageProcessingTimeMs > 45 && session.Settings.EnableAdaptiveProcessing)
+                    {
+                        session.AdaptiveSkipCountdown = Math.Max(session.AdaptiveSkipCountdown, 1);
+                    }
 
                     // Overlay stats and camera movement status
                     AddStatsOverlay(processedFrame, stats);
@@ -1459,7 +1611,7 @@ namespace STAR_MUTIMEDIA.Services
                 detectionData.Hands.Clear();
                 var selectedHands = filteredHands
                     .OrderByDescending(h => h.Width * h.Height)
-                    .Take(Math.Max(1, session.Settings.MaxTrackedHands))
+                    .Take(Math.Max(1, session.Settings.HandOnDemandOnly ? 1 : session.Settings.MaxTrackedHands))
                     .ToList();
 
                 foreach (var hand in selectedHands)
@@ -1490,10 +1642,19 @@ namespace STAR_MUTIMEDIA.Services
                             Height = hand.Height
                         },
                         Confidence = handConfidence,
-                        Handedness = "Unknown",
+                        Handedness = hand.X + (hand.Width / 2.0) < grayFrame.Width / 2.0 ? "Left" : "Right",
                         TrackId = detectionData.Hands.Count
                     };
+                    handDetection.Landmarks = BuildHandSkeletonLandmarks(hand, handDetection.Handedness);
                     handDetection.Gesture = InferGestureWithModel(handDetection, session.Settings.EnableModelEnhancedPipeline);
+                    if (handDetection.Gesture != null && handDetection.Landmarks.Count > 0)
+                    {
+                        handDetection.Landmarks = BuildGestureLandmarks(handDetection.Landmarks, handDetection.Gesture.Type, handDetection.Handedness);
+                    }
+                    if (handDetection.Gesture != null && handDetection.Gesture.KeyPoints.Count == 0 && handDetection.Landmarks.Count > 0)
+                    {
+                        handDetection.Gesture.KeyPoints = new List<LandmarkPoint>(handDetection.Landmarks);
+                    }
                     detectionData.Hands.Add(handDetection);
                 }
 
@@ -1572,6 +1733,134 @@ namespace STAR_MUTIMEDIA.Services
 
             var union = (a.Width * a.Height) + (b.Width * b.Height) - intersection;
             return union <= 0 ? 0.0 : (double)intersection / union;
+        }
+
+        private static List<LandmarkPoint> BuildHandSkeletonLandmarks(Rect box, string handedness)
+        {
+            _ = box;
+            var points = new List<LandmarkPoint>(21);
+            var isLeft = string.Equals(handedness, "Left", StringComparison.OrdinalIgnoreCase);
+
+            LandmarkPoint P(double x, double y, string type, double z = 0.0, double confidence = 0.82)
+            {
+                return new LandmarkPoint
+                {
+                    X = Math.Clamp(x, 0.0, 1.0),
+                    Y = Math.Clamp(y, 0.0, 1.0),
+                    Z = z,
+                    Confidence = confidence,
+                    Type = type
+                };
+            }
+
+            var thumbBaseX = isLeft ? 0.33 : 0.67;
+            var thumbDir = isLeft ? -1.0 : 1.0;
+
+            // Wrist (0)
+            points.Add(P(0.5, 0.92, "wrist", 0.0, 0.9));
+
+            // Thumb (1-4)
+            points.Add(P(thumbBaseX, 0.82, "thumb_cmc", -0.02));
+            points.Add(P(thumbBaseX + (0.08 * thumbDir), 0.72, "thumb_mcp", -0.03));
+            points.Add(P(thumbBaseX + (0.14 * thumbDir), 0.64, "thumb_ip", -0.03));
+            points.Add(P(thumbBaseX + (0.20 * thumbDir), 0.56, "thumb_tip", -0.02, 0.88));
+
+            // Index (5-8)
+            points.Add(P(0.36, 0.74, "index_mcp", -0.01));
+            points.Add(P(0.34, 0.59, "index_pip", -0.02));
+            points.Add(P(0.33, 0.45, "index_dip", -0.03));
+            points.Add(P(0.32, 0.30, "index_tip", -0.03, 0.9));
+
+            // Middle (9-12)
+            points.Add(P(0.50, 0.72, "middle_mcp", -0.01));
+            points.Add(P(0.50, 0.54, "middle_pip", -0.02));
+            points.Add(P(0.50, 0.37, "middle_dip", -0.03));
+            points.Add(P(0.50, 0.20, "middle_tip", -0.03, 0.9));
+
+            // Ring (13-16)
+            points.Add(P(0.63, 0.75, "ring_mcp", -0.01));
+            points.Add(P(0.65, 0.60, "ring_pip", -0.02));
+            points.Add(P(0.66, 0.47, "ring_dip", -0.03));
+            points.Add(P(0.67, 0.34, "ring_tip", -0.03, 0.88));
+
+            // Pinky (17-20)
+            points.Add(P(0.75, 0.79, "pinky_mcp", 0.0));
+            points.Add(P(0.79, 0.67, "pinky_pip", -0.01));
+            points.Add(P(0.82, 0.57, "pinky_dip", -0.02));
+            points.Add(P(0.85, 0.47, "pinky_tip", -0.02, 0.86));
+
+            return points;
+        }
+
+        private static List<LandmarkPoint> BuildGestureLandmarks(List<LandmarkPoint> source, string gestureType, string handedness)
+        {
+            var points = source
+                .Select(p => new LandmarkPoint
+                {
+                    X = p.X,
+                    Y = p.Y,
+                    Z = p.Z,
+                    Confidence = p.Confidence,
+                    Type = p.Type
+                })
+                .ToList();
+
+            if (points.Count < 21)
+            {
+                return points;
+            }
+
+            var type = (gestureType ?? string.Empty).Trim().ToLowerInvariant();
+            var isLeft = string.Equals(handedness, "Left", StringComparison.OrdinalIgnoreCase);
+
+            void CurlFinger(int tip, int dip, int pip, int mcp, double amount = 0.62)
+            {
+                var baseX = points[mcp].X;
+                var baseY = points[mcp].Y;
+                var pipX = points[pip].X;
+                var pipY = points[pip].Y;
+
+                points[dip].X = baseX + (pipX - baseX) * (1.0 - amount * 0.45);
+                points[dip].Y = baseY + (pipY - baseY) * (1.0 - amount * 0.35);
+                points[tip].X = baseX + (pipX - baseX) * (1.0 - amount);
+                points[tip].Y = baseY + (pipY - baseY) * (1.0 - amount * 0.85);
+            }
+
+            void ExtendFinger(int tip, int dip, int pip, int mcp, double extendY = 0.18)
+            {
+                var baseX = points[mcp].X;
+                points[pip].Y = Math.Min(points[pip].Y, points[mcp].Y - (extendY * 0.45));
+                points[dip].Y = Math.Min(points[dip].Y, points[pip].Y - (extendY * 0.35));
+                points[tip].Y = Math.Min(points[tip].Y, points[dip].Y - (extendY * 0.30));
+                points[tip].X = baseX + (points[tip].X - baseX) * 0.92;
+            }
+
+            switch (type)
+            {
+                case "fist":
+                    CurlFinger(8, 7, 6, 5);
+                    CurlFinger(12, 11, 10, 9);
+                    CurlFinger(16, 15, 14, 13);
+                    CurlFinger(20, 19, 18, 17);
+                    points[4].X = points[3].X + (isLeft ? 0.015 : -0.015);
+                    points[4].Y = Math.Max(points[3].Y, points[3].Y + 0.04);
+                    break;
+                case "pointing":
+                    ExtendFinger(8, 7, 6, 5, 0.22);
+                    CurlFinger(12, 11, 10, 9, 0.70);
+                    CurlFinger(16, 15, 14, 13, 0.72);
+                    CurlFinger(20, 19, 18, 17, 0.72);
+                    points[4].X = points[3].X + (isLeft ? -0.012 : 0.012);
+                    points[4].Y = points[3].Y - 0.03;
+                    break;
+                case "raisedhand":
+                case "openpalm":
+                default:
+                    // Keep open-hand structure from base skeleton.
+                    break;
+            }
+
+            return points;
         }
 
         private void SafeMovementDetection(Mat currentFrame, Mat processedFrame, SessionData session,
@@ -1888,7 +2177,8 @@ namespace STAR_MUTIMEDIA.Services
                     CreatedAt = DateTime.UtcNow,
                     LastFrameTime = DateTime.UtcNow,
                     ProcessingTimes = new Queue<double>(),
-                    MovementHistory = new List<MovementVector>()
+                    MovementHistory = new List<MovementVector>(),
+                    InferenceProvider = _inferenceProvider
                 },
                 (id, existing) => existing);
 
@@ -2033,6 +2323,19 @@ namespace STAR_MUTIMEDIA.Services
 
         public DetectorDiagnosticsReport GetDetectorDiagnostics(string sessionId)
         {
+            static ModuleTiming BuildTiming(Queue<double> q)
+            {
+                if (q == null || q.Count == 0) return new ModuleTiming();
+                var arr = q.ToArray();
+                var avg = arr.Average();
+                return new ModuleTiming
+                {
+                    AvgMs = avg,
+                    LastMs = arr.Last(),
+                    Fps = avg > 0 ? 1000.0 / avg : 0
+                };
+            }
+
             if (string.IsNullOrWhiteSpace(sessionId))
             {
                 return new DetectorDiagnosticsReport
@@ -2040,7 +2343,9 @@ namespace STAR_MUTIMEDIA.Services
                     SessionId = "",
                     TimestampUtc = DateTime.UtcNow,
                     ActiveSessions = _sessions.Count,
-                    Health = GetDetectorHealth(null)
+                    Health = GetDetectorHealth(null),
+                    InferenceProvider = "cpu",
+                    SceneModelBackend = "ssd"
                 };
             }
 
@@ -2062,7 +2367,20 @@ namespace STAR_MUTIMEDIA.Services
                 LastEntityByCategory = entities
                     .GroupBy(e => string.IsNullOrWhiteSpace(e.Category) ? "unknown" : e.Category)
                     .ToDictionary(g => g.Key, g => g.Count()),
-                Health = GetDetectorHealth(sessionId)
+                Health = GetDetectorHealth(sessionId),
+                ModulePerformance = new ModulePerformanceMetrics
+                {
+                    Face = BuildTiming(session?.FaceModuleMs ?? new Queue<double>()),
+                    Hand = BuildTiming(session?.HandModuleMs ?? new Queue<double>()),
+                    Scene = BuildTiming(session?.SceneModuleMs ?? new Queue<double>()),
+                    Ocr = BuildTiming(session?.OcrModuleMs ?? new Queue<double>()),
+                    DroppedFrames = session?.DroppedFrameCount ?? 0,
+                    ScheduledSkips = session?.ScheduledSkipCount ?? 0,
+                    QueueDrops = 0
+                },
+                RecentEvents = session?.RecentEvents?.ToList() ?? new List<IntelligenceEvent>(),
+                InferenceProvider = session?.InferenceProvider ?? "cpu",
+                SceneModelBackend = session?.Settings?.SceneModelBackend ?? "ssd"
             };
         }
 
@@ -2209,7 +2527,7 @@ namespace STAR_MUTIMEDIA.Services
         {
             if (_sessions.TryGetValue(sessionId, out var session))
             {
-                session.Settings.TargetFPS = Math.Max(1, Math.Min(60, targetFPS));
+                session.Settings.TargetFPS = Math.Max(0.5, Math.Min(100, targetFPS));
                 session.Stats.TargetFPS = session.Settings.TargetFPS;
 
                 // Update monitoring config as well
@@ -2641,6 +2959,7 @@ namespace STAR_MUTIMEDIA.Services
                     _handCascade?.Dispose();
                     _catFaceCascade?.Dispose();
                     _mobileNetSsd?.Dispose();
+                    _yoloV8Net?.Dispose();
 
                     // Dispose session resources
                     foreach (var session in _sessions.Values)

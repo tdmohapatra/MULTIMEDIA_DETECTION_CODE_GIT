@@ -130,6 +130,10 @@
                 color: var(--primary) !important;
             }
 
+        .navbar-nav .nav-link.text-dark {
+            color: var(--text) !important;
+        }
+
             .navbar-nav .nav-link::after {
                 content: '';
                 position: absolute;
@@ -1082,6 +1086,7 @@
             const themeToggle = document.querySelector('.theme-toggle');
             const themeDropdown = document.querySelector('.theme-dropdown');
             const themeOptions = document.querySelectorAll('.theme-option');
+            const storageKey = 'unified-theme';
 
             // Toggle dropdown
             themeToggle.addEventListener('click', function(e) {
@@ -1115,12 +1120,12 @@
                     themeDropdown.classList.remove('show');
 
                     // Save theme preference
-                    localStorage.setItem('selected-theme', theme);
+                    localStorage.setItem(storageKey, theme);
                 });
             });
 
             // Load saved theme
-            const savedTheme = localStorage.getItem('selected-theme');
+            const savedTheme = localStorage.getItem(storageKey) || localStorage.getItem('selected-theme');
             if (savedTheme) {
                 document.body.className = savedTheme;
                 themeOptions.forEach(option => {

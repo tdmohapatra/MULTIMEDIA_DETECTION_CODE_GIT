@@ -1,0 +1,84 @@
+﻿{
+    "profileName":  "yolo_best_default",
+    "generatedAtUtc":  "2026-04-14T14:25:55.2381484Z",
+    "basedOn":  {
+                    "sweepThresholds":  [
+                                            0.3,
+                                            0.35,
+                                            0.4,
+                                            0.45,
+                                            0.5,
+                                            0.55,
+                                            0.6,
+                                            0.65
+                                        ],
+                    "imagesUsed":  24,
+                    "targetClasses":  [
+                                          "person",
+                                          "car",
+                                          "bicycle",
+                                          "dog",
+                                          "cat"
+                                      ]
+                },
+    "sceneOptions":  {
+                         "sceneModelBackend":  "yolo",
+                         "ssdConfidenceThreshold":  0.4,
+                         "yoloNmsThreshold":  0.45,
+                         "yoloInputSize":  640,
+                         "processAllModels":  false,
+                         "enableSsdModel":  true,
+                         "enableFaceCascade":  false,
+                         "enableFullBodyCascade":  false,
+                         "enableCatCascade":  false,
+                         "includeHuman":  true,
+                         "includeAnimal":  true,
+                         "includeObject":  true
+                     },
+    "evaluation":  {
+                       "threshold":  0.4,
+                       "frames":  24,
+                       "avgMs":  83.24,
+                       "avgFps":  12.01,
+                       "yoloDetections":  2,
+                       "classPrecisionProxy":  {
+                                                   "person":  {
+                                                                  "detections":  2,
+                                                                  "frameHits":  2,
+                                                                  "avgConfidence":  0.7957,
+                                                                  "highConfidenceRatio":  1,
+                                                                  "precisionProxy":  0.4956
+                                                              },
+                                                   "bicycle":  {
+                                                                   "detections":  0,
+                                                                   "frameHits":  0,
+                                                                   "avgConfidence":  0,
+                                                                   "highConfidenceRatio":  0,
+                                                                   "precisionProxy":  0
+                                                               },
+                                                   "car":  {
+                                                               "detections":  0,
+                                                               "frameHits":  0,
+                                                               "avgConfidence":  0,
+                                                               "highConfidenceRatio":  0,
+                                                               "precisionProxy":  0
+                                                           },
+                                                   "cat":  {
+                                                               "detections":  0,
+                                                               "frameHits":  0,
+                                                               "avgConfidence":  0,
+                                                               "highConfidenceRatio":  0,
+                                                               "precisionProxy":  0
+                                                           },
+                                                   "dog":  {
+                                                               "detections":  0,
+                                                               "frameHits":  0,
+                                                               "avgConfidence":  0,
+                                                               "highConfidenceRatio":  0,
+                                                               "precisionProxy":  0
+                                                           }
+                                               },
+                       "avgPrecisionProxy":  0.0991,
+                       "compositeScore":  0.1743
+                   }
+}
