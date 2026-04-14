@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 using OpenCvSharp;
@@ -178,11 +178,52 @@ namespace STAR_MUTIMEDIA.Models
         public BehaviorAnalysis BehaviorAnalysis { get; set; } = new BehaviorAnalysis();
         public HumanTrackingState HumanTracking { get; set; } = new HumanTrackingState();
         public SceneAnalysisResult SceneAnalysis { get; set; } = new SceneAnalysisResult();
+        public ProcessingStageTimings StageTimings { get; set; } = new ProcessingStageTimings();
+        public DetectorHealthSnapshot DetectorHealth { get; set; } = new DetectorHealthSnapshot();
         public CalibrationResult Calibration { get; set; }
         public string CapturedText { get; set; }
         public bool Success { get; set; } = true;
         public string ErrorMessage { get; set; }
         public DateTime ProcessingTime { get; set; } = DateTime.UtcNow;
+    }
+
+    public class ProcessingStageTimings
+    {
+        public double DecodeMs { get; set; }
+        public double DetectionMs { get; set; }
+        public double RenderMs { get; set; }
+        public double PostAnalysisMs { get; set; }
+        public double TotalMs { get; set; }
+        public bool SkippedByRateControl { get; set; }
+    }
+
+    public class DetectorHealthSnapshot
+    {
+        public string SessionId { get; set; } = "";
+        public DateTime TimestampUtc { get; set; } = DateTime.UtcNow;
+        public int ActiveSessions { get; set; }
+        public string LastScenePipeline { get; set; } = "unknown";
+        public double LastSceneFrameMs { get; set; }
+        public bool FaceCascadeReady { get; set; }
+        public bool EyeCascadeReady { get; set; }
+        public bool HandCascadeReady { get; set; }
+        public bool FullBodyCascadeReady { get; set; }
+        public bool CatCascadeReady { get; set; }
+        public bool SsdLoaded { get; set; }
+        public bool SsdLoadFailed { get; set; }
+    }
+
+    public class DetectorDiagnosticsReport
+    {
+        public string SessionId { get; set; } = "";
+        public DateTime TimestampUtc { get; set; } = DateTime.UtcNow;
+        public int ActiveSessions { get; set; }
+        public ProcessingStageTimings AverageTimings { get; set; } = new ProcessingStageTimings();
+        public ProcessingStageTimings LastTimings { get; set; } = new ProcessingStageTimings();
+        public string LastScenePipeline { get; set; } = "unknown";
+        public Dictionary<string, int> LastEntityBySource { get; set; } = new Dictionary<string, int>();
+        public Dictionary<string, int> LastEntityByCategory { get; set; } = new Dictionary<string, int>();
+        public DetectorHealthSnapshot Health { get; set; } = new DetectorHealthSnapshot();
     }
 
     public class MonitoringState
@@ -295,6 +336,21 @@ namespace STAR_MUTIMEDIA.Models
         public double FrameProcessingMs { get; set; }
         public string Summary { get; set; } = "";
         public string Notes { get; set; }
+        /// <summary>Live detector/model status for UI diagnostics.</summary>
+        public SceneModelStatus ModelStatus { get; set; } = new SceneModelStatus();
+    }
+
+    public class SceneModelStatus
+    {
+        public bool SsdRequested { get; set; }
+        public bool SsdLoaded { get; set; }
+        public bool FaceCascadeRequested { get; set; }
+        public bool FaceCascadeReady { get; set; }
+        public bool FullBodyRequested { get; set; }
+        public bool FullBodyReady { get; set; }
+        public bool CatCascadeRequested { get; set; }
+        public bool CatCascadeReady { get; set; }
+        public bool ProcessAllModels { get; set; }
     }
 
     public class SceneEntity
@@ -316,6 +372,30 @@ namespace STAR_MUTIMEDIA.Models
         public long Timestamp { get; set; }
         public int FrameNumber { get; set; }
         public string ProcessingMode { get; set; } = "standard"; // standard, enhanced, fast
+        public SceneProcessingOptions SceneOptions { get; set; } = new SceneProcessingOptions();
+    }
+
+    public class SceneProcessingOptions
+    {
+        // Category filters
+        public bool IncludeHuman { get; set; } = true;
+        public bool IncludeAnimal { get; set; } = true;
+        public bool IncludeObject { get; set; } = true;
+
+        // Detector/model toggles
+        public bool EnableSsdModel { get; set; } = true;
+        public bool EnableFaceCascade { get; set; } = true;
+        public bool EnableFullBodyCascade { get; set; } = true;
+        public bool EnableCatCascade { get; set; } = true;
+
+        // If true, executes all enabled model/cascade sources in one frame.
+        public bool ProcessAllModels { get; set; } = true;
+
+        // Per-source thresholds/tuning
+        public double SsdConfidenceThreshold { get; set; } = 0.35;
+        public int FullBodyMinNeighbors { get; set; } = 3;
+        public int CatMinNeighbors { get; set; } = 6;
+        public double CatMinAreaRatio { get; set; } = 0.004;
     }
 
     public class EnhancedFrameData : FrameData
@@ -594,6 +674,7 @@ namespace STAR_MUTIMEDIA.Models
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime LastFrameTime { get; set; } = DateTime.UtcNow;
         public Queue<double> ProcessingTimes { get; set; } = new Queue<double>();
+        public Queue<ProcessingStageTimings> StageTimingsHistory { get; set; } = new Queue<ProcessingStageTimings>();
         public int FramesToSkip { get; set; } = 0;
 
         // Camera movement tracking
@@ -642,6 +723,41 @@ namespace STAR_MUTIMEDIA.Models
             {
                 ProcessingTimes.Dequeue();
             }
+        }
+
+        public void AddStageTiming(ProcessingStageTimings stageTiming)
+        {
+            if (stageTiming == null)
+                return;
+            StageTimingsHistory.Enqueue(stageTiming);
+            if (StageTimingsHistory.Count > 100)
+            {
+                StageTimingsHistory.Dequeue();
+            }
+        }
+
+        public ProcessingStageTimings GetAverageStageTimings()
+        {
+            if (StageTimingsHistory.Count == 0)
+                return new ProcessingStageTimings();
+
+            var snapshot = StageTimingsHistory.ToArray();
+            return new ProcessingStageTimings
+            {
+                DecodeMs = snapshot.Average(s => s.DecodeMs),
+                DetectionMs = snapshot.Average(s => s.DetectionMs),
+                RenderMs = snapshot.Average(s => s.RenderMs),
+                PostAnalysisMs = snapshot.Average(s => s.PostAnalysisMs),
+                TotalMs = snapshot.Average(s => s.TotalMs),
+                SkippedByRateControl = snapshot.Count(s => s.SkippedByRateControl) > (snapshot.Length / 2)
+            };
+        }
+
+        public ProcessingStageTimings GetLastStageTiming()
+        {
+            if (StageTimingsHistory.Count == 0)
+                return new ProcessingStageTimings();
+            return StageTimingsHistory.Last();
         }
 
         public double GetAverageProcessingTime()
@@ -723,225 +839,3 @@ namespace STAR_MUTIMEDIA.Models
 //        public double Magnitude { get; set; }
 //        public DateTime Timestamp { get; set; }
 //    }
-
-//    public enum CameraMovementType
-//    {
-//        Stable,
-//        SlowPan,
-//        FastPan,
-//        SlowTilt,
-//        FastTilt,
-//        Zooming,
-//        Shaking,
-//        Rotating
-//    }
-
-//    public class DetectionSettings
-//    {
-//        // Frame rate control
-//        public double TargetFPS { get; set; } = 30.0;
-//        public bool EnableFrameRateControl { get; set; } = true;
-
-//        // Monitoring options
-//        public bool EnableFaceDetection { get; set; } = true;
-//        public bool EnableEyeDetection { get; set; } = true;
-//        public bool EnableHandDetection { get; set; } = true;
-//        public bool EnableMovementDetection { get; set; } = true;
-//        public bool EnableTextDetection { get; set; } = true;
-//        public bool EnableCameraMovementAnalysis { get; set; } = true;
-
-//        // Thresholds
-//        public double MovementThreshold { get; set; } = 10.0;
-//        public double CameraStabilityThreshold { get; set; } = 80.0;
-
-//        // Performance settings
-//        public int FrameSkipCount { get; set; } = 0;
-//        public bool EnableAdaptiveProcessing { get; set; } = true;
-//    }
-
-//    public class FrameRateInfo
-//    {
-//        public double TargetFPS { get; set; }
-//        public double ActualFPS { get; set; }
-//        public double ProcessingTimeMs { get; set; }
-//        public bool IsOptimal { get; set; }
-//        public string Recommendation { get; set; }
-//    }
-
-//    public class CameraMovementAnalysis
-//    {
-//        public CameraMovementType MovementType { get; set; }
-//        public double StabilityScore { get; set; }
-//        public double HorizontalMovement { get; set; }
-//        public double VerticalMovement { get; set; }
-//        public double ZoomLevel { get; set; }
-//        public string Status { get; set; }
-//        public string Recommendation { get; set; }
-//    }
-
-//    public class DetectionResult
-//    {
-//        public string ImageData { get; set; }
-//        public DetectionStats Stats { get; set; }
-//        public List<string> Notifications { get; set; } = new List<string>();
-//        public List<string> Logs { get; set; } = new List<string>();
-//        public List<DetectedObject> DetectedObjects { get; set; } = new List<DetectedObject>();
-//        public string CapturedText { get; set; }
-//    }
-
-//    public class DetectedObject
-//    {
-//        public string Type { get; set; }
-//        public int X { get; set; }
-//        public int Y { get; set; }
-//        public int Width { get; set; }
-//        public int Height { get; set; }
-//        public double Confidence { get; set; }
-//        public string AdditionalInfo { get; set; }
-//    }
-//    public class FrameData
-//    {
-//        public string ImageData { get; set; }
-//        public string SessionId { get; set; }
-//        public long Timestamp { get; set; }
-//        public int FrameNumber { get; set; }
-//    }
-
-//    public class EnhancedFrameData : FrameData
-//    {
-//        public long Timestamp { get; set; }
-//        public int FrameNumber { get; set; }
-//        public DetectionSettings Settings { get; set; }
-//    }
-
-//    public class EnhancedDetectionResult : DetectionResult
-//    {
-//        public List<FaceExpression> FaceExpressions { get; set; } = new List<FaceExpression>();
-//        public List<HandGesture> HandGestures { get; set; } = new List<HandGesture>();
-//        public List<EyeMovement> EyeMovements { get; set; } = new List<EyeMovement>();
-//        public VitalMetrics VitalMetrics { get; set; } = new VitalMetrics();
-//        public List<DetectionNotification> Notifications { get; set; } = new List<DetectionNotification>();
-//    }
-
-//    public class FaceExpression
-//    {
-//        public BoundingBox BBox { get; set; }
-//        public Dictionary<string, double> Emotions { get; set; }
-//        public string DominantEmotion { get; set; }
-//        public double Confidence { get; set; }
-//    }
-
-//    public class HandGesture
-//    {
-//        public BoundingBox BBox { get; set; }
-//        public string Type { get; set; }
-//        public string Handedness { get; set; }
-//        public double Confidence { get; set; }
-//        public string Meaning { get; set; }
-//    }
-
-//    public class EyeMovement
-//    {
-//        public BoundingBox BBox { get; set; }
-//        public string Direction { get; set; }
-//        public bool IsBlinking { get; set; }
-//        public double Confidence { get; set; }
-//    }
-
-//    public class VitalMetrics
-//    {
-//        public int? HeartRate { get; set; }
-//        public string StressLevel { get; set; }
-//        public double AttentionScore { get; set; }
-//        public string EngagementLevel { get; set; }
-//    }
-
-//    public class BoundingBox
-//    {
-//        public double X { get; set; }
-//        public double Y { get; set; }
-//        public double Width { get; set; }
-//        public double Height { get; set; }
-//    }
-
-//    public class DetectionNotification
-//    {
-//        public string Type { get; set; }
-//        public string Message { get; set; }
-//        public DateTime Timestamp { get; set; }
-//        public string Severity { get; set; } // Info, Warning, Alert
-//    }
-
-//    public class SystemLog
-//    {
-//        public string Message { get; set; }
-//        public DateTime Timestamp { get; set; }
-//        public string Level { get; set; } // Info, Warning, Error
-//    }
-
-//    public class MonitoringConfiguration
-//    {
-//        public string SessionId { get; set; }
-//        public List<MonitoringOption> EnabledOptions { get; set; } = new List<MonitoringOption>();
-//        public FrameRateControl FrameRateControl { get; set; } = new FrameRateControl();
-//        public CameraMovementConfig CameraMovementConfig { get; set; } = new CameraMovementConfig();
-//    }
-
-//    public class MonitoringOption
-//    {
-//        public string Name { get; set; }
-//        public string DisplayName { get; set; }
-//        public bool IsEnabled { get; set; }
-//        public string Category { get; set; }
-//        public string Description { get; set; }
-//    }
-
-//    public class FrameRateControl
-//    {
-//        public double TargetFPS { get; set; } = 30.0;
-//        public double MinFPS { get; set; } = 5.0;
-//        public double MaxFPS { get; set; } = 60.0;
-//        public bool AdaptiveMode { get; set; } = true;
-//        public int FrameSkip { get; set; } = 0;
-//    }
-
-//    public class CameraMovementConfig
-//    {
-//        public bool EnableAnalysis { get; set; } = true;
-//        public double StabilityThreshold { get; set; } = 80.0;
-//        public bool ShowStatusBar { get; set; } = true;
-//        public bool EnableAlerts { get; set; } = true;
-//    }
-
-//    public class SessionAnalytics
-//    {
-//        public string SessionId { get; set; }
-//        public DetectionStats Stats { get; set; }
-//        public TimeSpan SessionDuration { get; set; }
-//        public DateTime StartedAt { get; set; }
-//        public DateTime LastActivity { get; set; }
-//        public List<string> RecentNotifications { get; set; } = new List<string>();
-//    }
-
-//    // Internal classes for service use only
-//    internal class SessionData
-//    {
-//        public string SessionId { get; set; }
-//        public DetectionStats Stats { get; set; } = new DetectionStats();
-//        public DetectionSettings Settings { get; set; } = new DetectionSettings();
-//        public MonitoringConfiguration MonitoringConfig { get; set; } = new MonitoringConfiguration();
-//        public Mat PreviousFrame { get; set; }
-//        public Mat PreviousGrayFrame { get; set; }
-//        public bool LastFaceState { get; set; }
-//        public bool LastMovementState { get; set; }
-//        public string LastDetectedText { get; set; }
-//        public DateTime CreatedAt { get; set; } = DateTime.Now;
-//        public DateTime LastFrameTime { get; set; }
-//        public Queue<double> ProcessingTimes { get; set; } = new Queue<double>();
-//        public int FramesToSkip { get; set; } = 0;
-
-//        // Camera movement tracking
-//        public List<MovementVector> MovementHistory { get; set; } = new List<MovementVector>();
-//        public Point2f[] PreviousFeatures { get; set; }
-//    }
-//}

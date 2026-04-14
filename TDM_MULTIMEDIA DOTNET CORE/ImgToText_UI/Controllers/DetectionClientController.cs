@@ -32,4 +32,12 @@ public class DetectionClientController : Controller
         ViewData["ApiBaseUrl"] = _configuration["DetectionApi:BaseUrl"] ?? "http://localhost:5078";
         return View();
     }
+
+    [HttpGet("/ModelCanvas")]
+    [HttpGet("/DetectionClient/ModelCanvas")]
+    public IActionResult ModelCanvas()
+    {
+        ViewData["ApiBaseUrl"] = _configuration["DetectionApi:BaseUrl"] ?? "http://localhost:5078";
+        return View();
+    }
 }

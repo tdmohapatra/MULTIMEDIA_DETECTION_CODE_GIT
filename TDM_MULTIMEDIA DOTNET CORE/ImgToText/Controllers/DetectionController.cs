@@ -231,6 +231,51 @@ namespace STAR_MUTIMEDIA.Controllers
             }
         }
 
+        [HttpGet("detector-health")]
+        public IActionResult DetectorHealth([FromQuery] string sessionId = null)
+        {
+            try
+            {
+                var health = _detectionService.GetDetectorHealth(sessionId);
+                return Ok(health);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Detector health check failed for session {SessionId}", sessionId);
+                return StatusCode(500, new
+                {
+                    status = "Unhealthy",
+                    error = ex.Message,
+                    timestamp = DateTime.UtcNow
+                });
+            }
+        }
+
+        [HttpGet("detector-diagnostics/{sessionId}")]
+        public IActionResult DetectorDiagnostics(string sessionId)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(sessionId))
+                {
+                    return BadRequest(new { error = "Session ID is required" });
+                }
+
+                var diagnostics = _detectionService.GetDetectorDiagnostics(sessionId);
+                return Ok(diagnostics);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Detector diagnostics failed for session {SessionId}", sessionId);
+                return StatusCode(500, new
+                {
+                    status = "Unhealthy",
+                    error = ex.Message,
+                    timestamp = DateTime.UtcNow
+                });
+            }
+        }
+
         [HttpGet("monitoring-options")]
         public ActionResult<List<MonitoringOption>> GetMonitoringOptions()
         {
@@ -510,332 +555,4 @@ namespace STAR_MUTIMEDIA.Controllers
     }
 }
 
-//using Microsoft.AspNetCore.Mvc;
-//using Microsoft.AspNetCore.Http;
-//using System;
-//using System.Threading.Tasks;
-//using STAR_MUTIMEDIA.Models;
-//using STAR_MUTIMEDIA.Services;
-//using System.Collections.Generic;
-//using Microsoft.AspNetCore.Http;
-//using System;
-//using System.Threading.Tasks;
-//namespace STAR_MUTIMEDIA.Controllers
-//{
-//    [ApiController]
-//    [Route("api/[controller]")]
-//    public class DetectionController : ControllerBase
-//    {
-//        private readonly IRealTimeDetectionService _detectionService;
 
-//        public DetectionController(IRealTimeDetectionService detectionService)
-//        {
-//            _detectionService = detectionService ?? throw new ArgumentNullException(nameof(detectionService));
-//        }
-
-
-//        [HttpPost("process-frame")]
-//        public async Task<ActionResult<DetectionResult>> ProcessFrame([FromBody] FrameData frameData)
-//        {
-//            try
-//            {
-//                if (frameData == null)
-//                    return BadRequest(new { error = "Frame data is required" });
-
-//                if (string.IsNullOrEmpty(frameData.SessionId))
-//                {
-//                    frameData.SessionId = HttpContext.Session.Id;
-//                }
-
-//                var result = await _detectionService.ProcessFrameAsync(frameData);
-//                return Ok(result);
-//            }
-//            catch (Exception ex)
-//            {
-//                return BadRequest(new { error = ex.Message });
-//            }
-//        }
-
-//        //[HttpPost("process-frame")]
-//        //public async Task<ActionResult<DetectionResult>> ProcessFrame([FromBody] FrameData frameData)
-//        //{
-//        //    try
-//        //    {
-//        //        if (frameData == null)
-//        //            return BadRequest(new { error = "Frame data is required" });
-
-//        //        if (string.IsNullOrEmpty(frameData.SessionId))
-//        //        {
-//        //            frameData.SessionId = HttpContext.Session.Id;
-//        //        }
-
-//        //        var result = await _detectionService.ProcessFrameAsync(frameData);
-//        //        return Ok(result);
-//        //    }
-//        //    catch (Exception ex)
-//        //    {
-//        //        return BadRequest(new { error = ex.Message });
-//        //    }
-//        //}
-
-//        //[HttpPost("process-enhanced-frame")]
-//        //public async Task<ActionResult<EnhancedDetectionResult>> ProcessEnhancedFrame([FromBody] EnhancedFrameData frameData)
-//        //{
-//        //    try
-//        //    {
-//        //        if (frameData == null)
-//        //            return BadRequest(new { error = "Enhanced frame data is required" });
-
-//        //        if (string.IsNullOrEmpty(frameData.SessionId))
-//        //        {
-//        //            frameData.SessionId = HttpContext.Session.Id;
-//        //        }
-
-//        //        var result = await _detectionService.ProcessEnhancedFrameAsync(frameData);
-//        //        return Ok(result);
-//        //    }
-//        //    catch (Exception ex)
-//        //    {
-//        //        return BadRequest(new { error = ex.Message });
-//        //    }
-//        //}
-
-//        [HttpGet("stats/{sessionId}")]
-//        public ActionResult<DetectionStats> GetStats(string sessionId)
-//        {
-//            try
-//            {
-//                if (string.IsNullOrEmpty(sessionId))
-//                    return BadRequest(new { error = "Session ID is required" });
-
-//                var stats = _detectionService.GetSessionStats(sessionId);
-//                return Ok(stats);
-//            }
-//            catch (Exception ex)
-//            {
-//                return BadRequest(new { error = ex.Message });
-//            }
-//        }
-
-//        [HttpPost("settings/{sessionId}")]
-//        public IActionResult UpdateSettings(string sessionId, [FromBody] DetectionSettings settings)
-//        {
-//            try
-//            {
-//                if (string.IsNullOrEmpty(sessionId))
-//                    return BadRequest(new { error = "Session ID is required" });
-
-//                _detectionService.UpdateSessionSettings(sessionId, settings);
-//                return Ok(new { message = "Settings updated successfully" });
-//            }
-//            catch (Exception ex)
-//            {
-//                return BadRequest(new { error = ex.Message });
-//            }
-//        }
-
-//        [HttpPost("initialize/{sessionId}")]
-//        public IActionResult InitializeSession(string sessionId)
-//        {
-//            try
-//            {
-//                if (string.IsNullOrEmpty(sessionId))
-//                    return BadRequest(new { error = "Session ID is required" });
-
-//                _detectionService.InitializeSession(sessionId);
-//                return Ok(new { message = "Session initialized successfully" });
-//            }
-//            catch (Exception ex)
-//            {
-//                return BadRequest(new { error = ex.Message });
-//            }
-//        }
-
-//        [HttpPost("cleanup/{sessionId}")]
-//        public IActionResult CleanupSession(string sessionId)
-//        {
-//            try
-//            {
-//                if (string.IsNullOrEmpty(sessionId))
-//                    return BadRequest(new { error = "Session ID is required" });
-
-//                _detectionService.CleanupSession(sessionId);
-//                return Ok(new { message = "Session cleaned up successfully" });
-//            }
-//            catch (Exception ex)
-//            {
-//                return BadRequest(new { error = ex.Message });
-//            }
-//        }
-
-//        [HttpGet("active-sessions")]
-//        public ActionResult<List<string>> GetActiveSessions()
-//        {
-//            try
-//            {
-//                var sessions = _detectionService.GetActiveSessions();
-//                return Ok(sessions);
-//            }
-//            catch (Exception ex)
-//            {
-//                return BadRequest(new { error = ex.Message });
-//            }
-//        }
-
-//        [HttpGet("health")]
-//        public IActionResult HealthCheck()
-//        {
-//            try
-//            {
-//                var activeSessions = _detectionService.GetActiveSessions();
-//                return Ok(new
-//                {
-//                    status = "Healthy",
-//                    activeSessions = activeSessions.Count,
-//                    timestamp = DateTime.UtcNow
-//                });
-//            }
-//            catch (Exception ex)
-//            {
-//                return StatusCode(500, new { status = "Unhealthy", error = ex.Message });
-//            }
-//        }
-
-//        //[HttpGet("session-analytics/{sessionId}")]
-//        //public ActionResult<SessionAnalytics> GetSessionAnalytics(string sessionId)
-//        //{
-//        //    try
-//        //    {
-//        //        if (string.IsNullOrEmpty(sessionId))
-//        //            return BadRequest(new { error = "Session ID is required" });
-
-//        //        var analytics = _detectionService.GetSessionAnalytics(sessionId);
-//        //        if (analytics == null)
-//        //            return NotFound(new { error = "Session not found" });
-
-//        //        return Ok(analytics);
-//        //    }
-//        //    catch (Exception ex)
-//        //    {
-//        //        return BadRequest(new { error = ex.Message });
-//        //    }
-//        //}
-
-
-//        [HttpGet("monitoring-options")]
-//        public ActionResult<List<MonitoringOption>> GetMonitoringOptions()
-//        {
-//            try
-//            {
-//                var options = _detectionService.GetAvailableMonitoringOptions();
-//                return Ok(options);
-//            }
-//            catch (Exception ex)
-//            {
-//                return BadRequest(new { error = ex.Message });
-//            }
-//        }
-
-//        [HttpGet("monitoring-config/{sessionId}")]
-//        public ActionResult<MonitoringConfiguration> GetMonitoringConfig(string sessionId)
-//        {
-//            try
-//            {
-//                if (string.IsNullOrEmpty(sessionId))
-//                    return BadRequest(new { error = "Session ID is required" });
-
-//                var config = _detectionService.GetMonitoringConfiguration(sessionId);
-//                return Ok(config);
-//            }
-//            catch (Exception ex)
-//            {
-//                return BadRequest(new { error = ex.Message });
-//            }
-//        }
-
-//        [HttpPost("monitoring-config/{sessionId}")]
-//        public IActionResult UpdateMonitoringConfig(string sessionId, [FromBody] MonitoringConfiguration config)
-//        {
-//            try
-//            {
-//                if (string.IsNullOrEmpty(sessionId))
-//                    return BadRequest(new { error = "Session ID is required" });
-
-//                _detectionService.UpdateMonitoringConfiguration(sessionId, config);
-//                return Ok(new { message = "Monitoring configuration updated successfully" });
-//            }
-//            catch (Exception ex)
-//            {
-//                return BadRequest(new { error = ex.Message });
-//            }
-//        }
-
-//        [HttpGet("frame-rate/{sessionId}")]
-//        public ActionResult<FrameRateInfo> GetFrameRateInfo(string sessionId)
-//        {
-//            try
-//            {
-//                if (string.IsNullOrEmpty(sessionId))
-//                    return BadRequest(new { error = "Session ID is required" });
-
-//                var info = _detectionService.GetFrameRateInfo(sessionId);
-//                return Ok(info);
-//            }
-//            catch (Exception ex)
-//            {
-//                return BadRequest(new { error = ex.Message });
-//            }
-//        }
-
-//        [HttpPost("frame-rate/{sessionId}")]
-//        public IActionResult SetTargetFPS(string sessionId, [FromBody] double targetFPS)
-//        {
-//            try
-//            {
-//                if (string.IsNullOrEmpty(sessionId))
-//                    return BadRequest(new { error = "Session ID is required" });
-
-//                _detectionService.SetTargetFPS(sessionId, targetFPS);
-//                return Ok(new { message = $"Target FPS set to {targetFPS}" });
-//            }
-//            catch (Exception ex)
-//            {
-//                return BadRequest(new { error = ex.Message });
-//            }
-//        }
-
-//        [HttpGet("camera-movement/{sessionId}")]
-//        public ActionResult<CameraMovementAnalysis> GetCameraMovementAnalysis(string sessionId)
-//        {
-//            try
-//            {
-//                if (string.IsNullOrEmpty(sessionId))
-//                    return BadRequest(new { error = "Session ID is required" });
-
-//                var analysis = _detectionService.GetCameraMovementAnalysis(sessionId);
-//                return Ok(analysis);
-//            }
-//            catch (Exception ex)
-//            {
-//                return BadRequest(new { error = ex.Message });
-//            }
-//        }
-
-//        //[HttpPost("enable-option/{sessionId}")]
-//        //public IActionResult EnableMonitoringOption(string sessionId, [FromBody] EnableOptionRequest request)
-//        //{
-//        //    try
-//        //    {
-//        //        if (string.IsNullOrEmpty(sessionId))
-//        //            return BadRequest(new { error = "Session ID is required" });
-
-//        //        _detectionService.EnableMonitoringOption(sessionId, request.OptionName, request.Enable);
-//        //        return Ok(new { message = $"Option {request.OptionName} {(request.Enable ? "enabled" : "disabled")}" });
-//        //    }
-//        //    catch (Exception ex)
-//        //    {
-//        //        return BadRequest(new { error = ex.Message });
-//        //    }
-//        //}
-//    }
-//}

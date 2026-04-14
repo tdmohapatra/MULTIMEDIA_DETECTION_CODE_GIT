@@ -567,6 +567,15 @@
                     </div>
 
                     <div class="control-group" style="margin-top: 10px;">
+                        <label class="control-label">OCR Preset</label>
+                        <select id="ocrPresetSelect" class="language-select">
+                            <option value="balanced">Balanced</option>
+                            <option value="strict">Strict</option>
+                            <option value="sensitive">Sensitive</option>
+                        </select>
+                    </div>
+
+                    <div class="control-group" style="margin-top: 10px;">
                         <label class="control-label">Language</label>
                         <select id="languageSelect" class="language-select">
                             <option value="eng">English</option>
@@ -675,6 +684,11 @@
                                 <div class="confidence-fill" id="confidenceFill" style="width: 0%"></div>
                             </div>
                             <div id="confidenceText">Not processed</div>
+                            <div id="ocrStageTimingsText" style="margin-top:8px;">Stage timings: N/A</div>
+                            <div id="ocrDiagnosticsPanel" style="margin-top:10px;">
+                                <strong>Diagnostics:</strong>
+                                <div id="ocrDiagnosticsText">No diagnostics available yet.</div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1006,6 +1020,7 @@
             try {
                 const formData = new FormData();
                 formData.append('file', file);
+                formData.append('ocrPreset', document.getElementById('ocrPresetSelect').value);
 
                 const response = await fetch('/ImgToText/Upload', {
                     method: 'POST',
@@ -1065,6 +1080,7 @@
             try {
                 const formData = new FormData();
                 formData.append('file', file);
+                formData.append('ocrPreset', document.getElementById('ocrPresetSelect').value);
 
                 const response = await fetch('/ImgToText/UploadEnhanced', {
                     method: 'POST',
@@ -1574,7 +1590,60 @@
                 document.getElementById('confidenceText').textContent = confidencePercent + '% confidence';
             }
 
+            updateOcrDiagnostics(result.ocrDiagnostics);
+            updateOcrStageTimings(result.ocrStageTimings || result.ocrDiagnostics?.stageTimings, result.ocrPreset);
             updateTextStats();
+        }
+
+        function updateOcrStageTimings(stageTimings, preset) {
+            const stageTimingsText = document.getElementById('ocrStageTimingsText');
+            if (!stageTimingsText) return;
+            if (!stageTimings) {
+                stageTimingsText.textContent = `Stage timings (${preset || 'balanced'}): N/A`;
+                return;
+            }
+
+            const extractionMs = typeof stageTimings.extractionMs === 'number' ? stageTimings.extractionMs.toFixed(2) : 'N/A';
+            const compressionMs = typeof stageTimings.compressionMs === 'number' ? stageTimings.compressionMs.toFixed(2) : null;
+            const totalMs = typeof stageTimings.totalMs === 'number' ? stageTimings.totalMs.toFixed(2) : 'N/A';
+            const compressionPart = compressionMs ? `, compression ${compressionMs} ms` : '';
+            stageTimingsText.textContent = `Stage timings (${preset || 'balanced'}): extraction ${extractionMs} ms${compressionPart}, total ${totalMs} ms`;
+        }
+
+        function updateOcrDiagnostics(diagnostics) {
+            const diagnosticsText = document.getElementById('ocrDiagnosticsText');
+            if (!diagnosticsText) return;
+            if (!diagnostics) {
+                diagnosticsText.innerHTML = 'No diagnostics available yet.';
+                return;
+            }
+
+            const qualityHint = diagnostics.qualityHint || 'N/A';
+            const tokenCount = diagnostics.tokenCount ?? 0;
+            const textLength = diagnostics.textLength ?? 0;
+            const alphaNumericRatio = typeof diagnostics.alphaNumericRatio === 'number'
+                ? diagnostics.alphaNumericRatio.toFixed(2)
+                : '0.00';
+            const signature = diagnostics.signatureInsights || {};
+            const signatureScore = typeof signature.score === 'number'
+                ? Math.round(signature.score * 100)
+                : 0;
+            const signatureCandidates = Array.isArray(signature.candidates) ? signature.candidates.length : 0;
+            const signatureFlag = signature.hasSignatureLikeRegion ? 'Yes' : 'No';
+            const tamperScore = typeof signature.tamperScore === 'number' ? Math.round(signature.tamperScore * 100) : 0;
+            const tamperFlag = signature.potentialTamper ? 'Yes' : 'No';
+            const tamperSignals = Array.isArray(signature.tamperSignals) ? signature.tamperSignals.join(', ') : '';
+
+            diagnosticsText.innerHTML = `
+                - Quality: ${qualityHint}<br>
+                - Tokens: ${tokenCount}<br>
+                - Text length: ${textLength}<br>
+                - AlphaNumeric ratio: ${alphaNumericRatio}<br>
+                - Signature region likely: ${signatureFlag} (${signatureScore}%)<br>
+                - Signature candidates: ${signatureCandidates}<br>
+                - Potential tamper: ${tamperFlag} (${tamperScore}%)<br>
+                - Tamper signals: ${tamperSignals || 'none'}
+            `;
         }
 
         function updateFileInfo(file) {
@@ -1628,6 +1697,7 @@
             try {
                 const formData = new FormData();
                 formData.append('cameraFile', imageData);
+                formData.append('ocrPreset', document.getElementById('ocrPresetSelect').value);
 
                 const response = await fetch('/ImgToText/Upload', {
                     method: 'POST',
@@ -1649,7 +1719,10 @@
 
                 return {
                     extractedText: result.extractedText,
-                    confidence: result.confidence || 0
+                    confidence: result.confidence || 0,
+                    ocrDiagnostics: result.ocrDiagnostics || null,
+                    ocrStageTimings: result.ocrStageTimings || null,
+                    ocrPreset: result.ocrPreset || document.getElementById('ocrPresetSelect').value
                 };
 
             } catch (error) {

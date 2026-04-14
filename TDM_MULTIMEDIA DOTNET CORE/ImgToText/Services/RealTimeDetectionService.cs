@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -216,6 +216,8 @@ namespace STAR_MUTIMEDIA.Services
             var result = new DetectionResult();
             var notifications = new List<DetectionNotification>();
             var logs = new List<SystemLog>();
+            var stageTimings = new ProcessingStageTimings();
+            var totalStopwatch = Stopwatch.StartNew();
 
             try
             {
@@ -229,6 +231,12 @@ namespace STAR_MUTIMEDIA.Services
                     result.BehaviorAnalysis = new BehaviorAnalysis();
                     result.HumanTracking = new HumanTrackingState();
                     result.SceneAnalysis = new SceneAnalysisResult { Pipeline = "disabled" };
+                    result.StageTimings = new ProcessingStageTimings
+                    {
+                        SkippedByRateControl = true,
+                        TotalMs = 0
+                    };
+                    result.DetectorHealth = GetDetectorHealth(sessionId);
                     result.Notifications.Add(new DetectionNotification
                     {
                         Type = "System",
@@ -239,7 +247,7 @@ namespace STAR_MUTIMEDIA.Services
                     return await Task.FromResult(result);
                 }
 
-                var stopwatch = Stopwatch.StartNew();
+                var decodeStopwatch = Stopwatch.StartNew();
 
                 // Convert base64 to image with validation
                 if (string.IsNullOrEmpty(frameData.ImageData))
@@ -279,8 +287,23 @@ namespace STAR_MUTIMEDIA.Services
                                 throw new InvalidOperationException("Converted OpenCV mat is empty");
                             }
 
+                            decodeStopwatch.Stop();
+                            stageTimings.DecodeMs = decodeStopwatch.Elapsed.TotalMilliseconds;
+
                             session.Stats.AverageBrightness = EstimateSceneBrightness(mat);
-                            var processedMat = ProcessFrame(mat, session, notifications, logs, detectionData, frameData.ProcessingMode ?? "standard");
+                            var detectionStopwatch = Stopwatch.StartNew();
+                            var processedMat = ProcessFrame(
+                                mat,
+                                session,
+                                notifications,
+                                logs,
+                                detectionData,
+                                frameData.ProcessingMode ?? "standard",
+                                frameData.SceneOptions);
+                            detectionStopwatch.Stop();
+                            stageTimings.DetectionMs = detectionStopwatch.Elapsed.TotalMilliseconds;
+
+                            var renderStopwatch = Stopwatch.StartNew();
                             var outputMat = processedMat.Clone();
                             // Convert back to base64 only if processing was successful
                             if (!outputMat.Empty())
@@ -299,14 +322,13 @@ namespace STAR_MUTIMEDIA.Services
                             }
 
                             result.Detections = detectionData;
+                            renderStopwatch.Stop();
+                            stageTimings.RenderMs = renderStopwatch.Elapsed.TotalMilliseconds;
                         }
                     }
                 }
 
-                stopwatch.Stop();
-                UpdateProcessingTime(session, stopwatch.Elapsed.TotalMilliseconds);
-                UpdateCalibration(session);
-
+                var postAnalysisStopwatch = Stopwatch.StartNew();
                 var faceExpressions = AnalyzeFaceExpressions(detectionData.Faces);
                 var handGestures = AnalyzeHandGestures(detectionData.Hands);
                 handGestures = ApplyGestureTemporalSmoothing(session, handGestures);
@@ -321,6 +343,13 @@ namespace STAR_MUTIMEDIA.Services
 
                 session.Stats.ExpressionsDetected = faceExpressions.Count > 0;
                 session.Stats.GesturesDetected = handGestures.Count > 0;
+                postAnalysisStopwatch.Stop();
+                stageTimings.PostAnalysisMs = postAnalysisStopwatch.Elapsed.TotalMilliseconds;
+                totalStopwatch.Stop();
+                stageTimings.TotalMs = totalStopwatch.Elapsed.TotalMilliseconds;
+                UpdateProcessingTime(session, stageTimings.TotalMs);
+                session.AddStageTiming(stageTimings);
+                UpdateCalibration(session);
 
                 result.Stats = session.Stats.Clone();
                 result.Notifications = notifications;
@@ -333,12 +362,14 @@ namespace STAR_MUTIMEDIA.Services
                 result.MonitoringState = monitoringState;
                 result.HumanTracking = BuildHumanTrackingState(session, detectionData, session.Stats);
                 result.BehaviorAnalysis = BuildBehaviorAnalysis(detectionData, session.Stats, monitoringState);
+                result.StageTimings = stageTimings;
+                result.DetectorHealth = GetDetectorHealth(sessionId);
                 if (string.Equals(frameData.ProcessingMode, "scene", StringComparison.OrdinalIgnoreCase))
                 {
                     result.SceneAnalysis = session.LastSceneAnalysis ?? new SceneAnalysisResult();
-                    result.SceneAnalysis.FrameProcessingMs = stopwatch.Elapsed.TotalMilliseconds;
+                    result.SceneAnalysis.FrameProcessingMs = stageTimings.TotalMs;
                     result.SceneAnalysis.Summary = BuildSceneEntitySummary(result.SceneAnalysis.Entities);
-                    AppendSceneFrameTimeLog(session.SessionId, frameData.FrameNumber, stopwatch.Elapsed.TotalMilliseconds, result.SceneAnalysis.Summary, result.SceneAnalysis.Pipeline);
+                    AppendSceneFrameTimeLog(session.SessionId, frameData.FrameNumber, stageTimings.TotalMs, result.SceneAnalysis.Summary, result.SceneAnalysis.Pipeline);
                 }
                 else
                 {
@@ -361,7 +392,7 @@ namespace STAR_MUTIMEDIA.Services
 
                 logs.Add(new SystemLog
                 {
-                    Message = $"Frame processed successfully in {stopwatch.Elapsed.TotalMilliseconds:0.00}ms",
+                    Message = $"Frame processed successfully in {stageTimings.TotalMs:0.00}ms",
                     Timestamp = DateTime.UtcNow,
                     Level = "Info",
                     Component = "Processing"
@@ -369,6 +400,8 @@ namespace STAR_MUTIMEDIA.Services
             }
             catch (Exception ex)
             {
+                totalStopwatch.Stop();
+                stageTimings.TotalMs = totalStopwatch.Elapsed.TotalMilliseconds;
                 logs.Add(new SystemLog
                 {
                     Message = $"Error processing frame: {ex.Message}",
@@ -380,6 +413,8 @@ namespace STAR_MUTIMEDIA.Services
                 result.Logs = logs;
                 result.Success = false;
                 result.ErrorMessage = ex.Message;
+                result.StageTimings = stageTimings;
+                result.DetectorHealth = GetDetectorHealth(sessionId);
 
                 // Return a basic result with error information
                 result.Stats = session?.Stats?.Clone() ?? new DetectionStats();
@@ -886,7 +921,7 @@ namespace STAR_MUTIMEDIA.Services
         }
 
         private Mat ProcessFrame(Mat frame, SessionData session, List<DetectionNotification> notifications,
-            List<SystemLog> logs, DetectionData detectionData, string processingMode)
+            List<SystemLog> logs, DetectionData detectionData, string processingMode, SceneProcessingOptions? sceneOptions = null)
         {
             if (frame.Empty())
             {
@@ -953,7 +988,7 @@ namespace STAR_MUTIMEDIA.Services
 
                     if (string.Equals(processingMode, "scene", StringComparison.OrdinalIgnoreCase))
                     {
-                        RunSceneEntityDetection(processedFrame, grayFrame, session, detectionData, logs);
+                        RunSceneEntityDetection(processedFrame, grayFrame, session, detectionData, logs, sceneOptions);
                     }
                     else
                     {
@@ -1968,6 +2003,67 @@ namespace STAR_MUTIMEDIA.Services
         public List<string> GetActiveSessions()
         {
             return _sessions.Keys.ToList();
+        }
+
+        public DetectorHealthSnapshot GetDetectorHealth(string sessionId = null)
+        {
+            SessionData session = null;
+            if (!string.IsNullOrWhiteSpace(sessionId))
+            {
+                _sessions.TryGetValue(sessionId, out session);
+            }
+
+            var status = session?.LastSceneAnalysis?.ModelStatus;
+            return new DetectorHealthSnapshot
+            {
+                SessionId = sessionId ?? string.Empty,
+                TimestampUtc = DateTime.UtcNow,
+                ActiveSessions = _sessions.Count,
+                LastScenePipeline = session?.LastSceneAnalysis?.Pipeline ?? "unknown",
+                LastSceneFrameMs = session?.LastSceneAnalysis?.FrameProcessingMs ?? 0,
+                FaceCascadeReady = status?.FaceCascadeReady ?? (_faceCascade != null && !_faceCascade.Empty()),
+                EyeCascadeReady = _eyeCascade != null && !_eyeCascade.Empty(),
+                HandCascadeReady = _handCascade != null && !_handCascade.Empty(),
+                FullBodyCascadeReady = status?.FullBodyReady ?? (_fullbody != null && !_fullbody.Empty()),
+                CatCascadeReady = status?.CatCascadeReady ?? (_catFaceCascade != null && !_catFaceCascade.Empty()),
+                SsdLoaded = status?.SsdLoaded ?? (_mobileNetSsd != null),
+                SsdLoadFailed = _mobileNetSsdLoadFailed
+            };
+        }
+
+        public DetectorDiagnosticsReport GetDetectorDiagnostics(string sessionId)
+        {
+            if (string.IsNullOrWhiteSpace(sessionId))
+            {
+                return new DetectorDiagnosticsReport
+                {
+                    SessionId = "",
+                    TimestampUtc = DateTime.UtcNow,
+                    ActiveSessions = _sessions.Count,
+                    Health = GetDetectorHealth(null)
+                };
+            }
+
+            _sessions.TryGetValue(sessionId, out var session);
+            var lastScene = session?.LastSceneAnalysis;
+            var entities = lastScene?.Entities ?? new List<SceneEntity>();
+
+            return new DetectorDiagnosticsReport
+            {
+                SessionId = sessionId,
+                TimestampUtc = DateTime.UtcNow,
+                ActiveSessions = _sessions.Count,
+                AverageTimings = session?.GetAverageStageTimings() ?? new ProcessingStageTimings(),
+                LastTimings = session?.GetLastStageTiming() ?? new ProcessingStageTimings(),
+                LastScenePipeline = lastScene?.Pipeline ?? "unknown",
+                LastEntityBySource = entities
+                    .GroupBy(e => string.IsNullOrWhiteSpace(e.Source) ? "unknown" : e.Source)
+                    .ToDictionary(g => g.Key, g => g.Count()),
+                LastEntityByCategory = entities
+                    .GroupBy(e => string.IsNullOrWhiteSpace(e.Category) ? "unknown" : e.Category)
+                    .ToDictionary(g => g.Key, g => g.Count()),
+                Health = GetDetectorHealth(sessionId)
+            };
         }
 
         public MonitoringConfiguration GetMonitoringConfiguration(string sessionId)

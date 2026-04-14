@@ -1,7 +1,8 @@
-    @* @{
-        Layout = null;
-    }
- *@
+﻿@{
+    Layout = null;
+    var apiBase = $"{Context.Request.Scheme}://{Context.Request.Host}";
+    var uiBase = (ViewData["UiBaseUrl"]?.ToString() ?? "http://localhost:5080").TrimEnd('/');
+}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -291,6 +292,19 @@
             gap: 15px;
         }
 
+        .env-switch {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: var(--text);
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-size: 0.88rem;
+        }
+
+        .env-switch option {
+            color: #111827;
+        }
+
         .cta-button {
             background: linear-gradient(90deg, var(--primary), var(--secondary));
             color: white;
@@ -510,6 +524,41 @@
 
         .hero-quick-links a:hover {
             text-decoration: underline;
+        }
+
+        .launch-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+            gap: 14px;
+            margin-top: 24px;
+        }
+
+        .launch-item {
+            display: block;
+            text-decoration: none;
+            color: var(--text);
+            background: rgba(15, 23, 42, 0.55);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 12px;
+            padding: 14px 16px;
+            transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .launch-item:hover {
+            transform: translateY(-3px);
+            border-color: var(--primary-light);
+            box-shadow: 0 12px 30px rgba(99, 102, 241, 0.2);
+        }
+
+        .launch-item h4 {
+            font-size: 1rem;
+            margin-bottom: 6px;
+        }
+
+        .launch-item p {
+            margin: 0;
+            color: var(--text-muted);
+            font-size: 0.88rem;
         }
 
         .btn-secondary {
@@ -974,7 +1023,7 @@
 
     <!-- Header -->
     <header>
-       @*  <div class="container">
+        <div class="container">
             <nav class="navbar">
                 <a href="#" class="logo">
                     <div class="logo-icon"></div>
@@ -989,7 +1038,12 @@
                 </div>
 
                 <div class="nav-actions">
-                    <!-- Theme Switcher -->
+                    <select id="environmentSelect" class="env-switch" title="Switch environment links">
+                        <option value="local">Local</option>
+                        <option value="staging">Staging</option>
+                        <option value="production">Production</option>
+                    </select>
+
                     <div class="theme-switcher">
                         <div class="theme-toggle" id="themeToggle">
                             <i class="fas fa-palette"></i>
@@ -1023,7 +1077,7 @@
                     </a>
                 </div>
             </nav>
-        </div> *@
+        </div>
     </header>
 
     <!-- Hero Section -->
@@ -1112,6 +1166,24 @@
                 </div>
 
             </div>
+            <div class="launch-grid fade-in menu-entry fx-b">
+                <a class="launch-item" href="/ImgToText/ImageToTextScreen" data-module-sfx="ocr">
+                    <h4><i class="fas fa-file-image"></i> OCR Studio</h4>
+                    <p>Upload/camera OCR, exports, language tools, and image text extraction.</p>
+                </a>
+                <a class="launch-item" href="http://localhost:5080/DetectionView" target="_blank" rel="noopener noreferrer" data-module-sfx="scene">
+                    <h4><i class="fas fa-user-check"></i> Live Tracking</h4>
+                    <p>Human tracking, behavior analysis, overlays, and gesture monitoring.</p>
+                </a>
+                <a class="launch-item" href="http://localhost:5080/DetectionClient/SceneAnalysis" target="_blank" rel="noopener noreferrer" data-module-sfx="scene">
+                    <h4><i class="fas fa-paw"></i> Scene Analysis</h4>
+                    <p>Human/animal/object detection with scene summaries and frame timing.</p>
+                </a>
+                <a class="launch-item" href="http://localhost:5078/api/system/health" target="_blank" rel="noopener noreferrer" data-module-sfx="analytics">
+                    <h4><i class="fas fa-heartbeat"></i> System Health</h4>
+                    <p>Production observability endpoints for memory, logs, and health.</p>
+                </a>
+            </div>
         </div>
     </section>
 
@@ -1121,33 +1193,6 @@
             <div class="section-title">
                 <h2>Why Choose STAR MULTIMEDIA?</h2>
                 <p>Our platform combines advanced technology with user-friendly interfaces to deliver exceptional results.</p>
-                <div class="theme-switcher">
-                    <div class="theme-toggle" id="themeToggle">
-                        <i class="fas fa-palette"></i>
-                    </div>
-                    <div class="theme-options" id="themeOptions">
-                        <div class="theme-option theme-default active" data-theme="theme-default">
-                            <div class="theme-color"></div>
-                            <span>Default</span>
-                        </div>
-                        <div class="theme-option theme-ocean" data-theme="theme-ocean">
-                            <div class="theme-color"></div>
-                            <span>Ocean</span>
-                        </div>
-                        <div class="theme-option theme-forest" data-theme="theme-forest">
-                            <div class="theme-color"></div>
-                            <span>Forest</span>
-                        </div>
-                        <div class="theme-option theme-sunset" data-theme="theme-sunset">
-                            <div class="theme-color"></div>
-                            <span>Sunset</span>
-                        </div>
-                        <div class="theme-option theme-purple" data-theme="theme-purple">
-                            <div class="theme-color"></div>
-                            <span>Purple</span>
-                        </div>
-                    </div>
-                </div>
             </div>
 
             <div class="features-grid">
@@ -1157,7 +1202,7 @@
                     </div>
                     <h3>AI-Powered OCR</h3>
                     <p>Extract text from images with industry-leading accuracy using our advanced Optical Character Recognition technology.</p>
-                    <a href="#" class="feature-link">
+                    <a href="/ImgToText/ImageToTextScreen" class="feature-link">
                         Learn more <i class="fas fa-arrow-right"></i>
                     </a>
                 </div>
@@ -1168,7 +1213,7 @@
                     </div>
                     <h3>Lightning Fast Processing</h3>
                     <p>Process images and extract text in seconds with our optimized algorithms and cloud infrastructure.</p>
-                    <a href="#" class="feature-link">
+                    <a href="http://localhost:5080/DetectionView" target="_blank" rel="noopener noreferrer" class="feature-link">
                         Learn more <i class="fas fa-arrow-right"></i>
                     </a>
                 </div>
@@ -1179,7 +1224,7 @@
                     </div>
                     <h3>Secure & Private</h3>
                     <p>Your data is protected with enterprise-grade security. We never store or share your processed images.</p>
-                    <a href="#" class="feature-link">
+                    <a href="http://localhost:5080/Home/Privacy" target="_blank" rel="noopener noreferrer" class="feature-link">
                         Learn more <i class="fas fa-arrow-right"></i>
                     </a>
                 </div>
@@ -1190,7 +1235,7 @@
                     </div>
                     <h3>Multi-Language Support</h3>
                     <p>Extract text in multiple languages including English, French, German, Spanish, and more.</p>
-                    <a href="#" class="feature-link">
+                    <a href="/ImgToText/GetAvailableLanguages" class="feature-link">
                         Learn more <i class="fas fa-arrow-right"></i>
                     </a>
                 </div>
@@ -1201,7 +1246,7 @@
                     </div>
                     <h3>Responsive Design</h3>
                     <p>Access our tools from any device - desktop, tablet, or mobile - with our fully responsive interface.</p>
-                    <a href="#" class="feature-link">
+                    <a href="http://localhost:5080/" target="_blank" rel="noopener noreferrer" class="feature-link">
                         Learn more <i class="fas fa-arrow-right"></i>
                     </a>
                 </div>
@@ -1212,7 +1257,7 @@
                     </div>
                     <h3>Multiple Export Options</h3>
                     <p>Save your extracted text in various formats including TXT, DOCX, PDF, and more for maximum flexibility.</p>
-                    <a href="#" class="feature-link">
+                    <a href="/ImgToText/ImageToTextScreen" class="feature-link">
                         Learn more <i class="fas fa-arrow-right"></i>
                     </a>
                 </div>
@@ -1261,8 +1306,8 @@
                             <li><i class="fas fa-check"></i> Format Preservation</li>
                             <li><i class="fas fa-check"></i> Batch Document Processing</li>
                         </ul>
-                        <a href="#" class="cta-button">
-                            <i class="fas fa-external-link-alt"></i> Coming Soon
+                        <a href="/Home/ImageToTextBasic" class="cta-button">
+                            <i class="fas fa-external-link-alt"></i> Open OCR Docs Flow
                         </a>
                     </div>
                 </div>
@@ -1299,8 +1344,8 @@
                             <li><i class="fas fa-check"></i> Custom Dashboards</li>
                             <li><i class="fas fa-check"></i> Real-time Analytics</li>
                         </ul>
-                        <a href="#" class="cta-button">
-                            <i class="fas fa-external-link-alt"></i> Coming Soon
+                        <a href="http://localhost:5078/api/system/memory?count=60" class="cta-button" target="_blank" rel="noopener noreferrer">
+                            <i class="fas fa-external-link-alt"></i> Open Analytics API
                         </a>
                     </div>
                 </div>
@@ -1318,8 +1363,8 @@
                             <li><i class="fas fa-check"></i> API Access</li>
                             <li><i class="fas fa-check"></i> Automated Workflows</li>
                         </ul>
-                        <a href="#" class="cta-button">
-                            <i class="fas fa-external-link-alt"></i> Coming Soon
+                        <a href="http://localhost:5078/api/detection/active-sessions" class="cta-button" target="_blank" rel="noopener noreferrer">
+                            <i class="fas fa-external-link-alt"></i> Open Session API
                         </a>
                     </div>
                 </div>
@@ -1337,8 +1382,8 @@
                             <li><i class="fas fa-check"></i> Pattern Recognition</li>
                             <li><i class="fas fa-check"></i> Custom Algorithms</li>
                         </ul>
-                        <a href="#" class="cta-button">
-                            <i class="fas fa-external-link-alt"></i> Coming Soon
+                        <a href="/Home/ImageToTextBasic" class="cta-button">
+                            <i class="fas fa-external-link-alt"></i> Open Processing Lab
                         </a>
                     </div>
                 </div>
@@ -1400,32 +1445,32 @@
                     <h3>Modules</h3>
                     <ul class="footer-links">
                         <li><a href="/ImgToText/ImageToTextScreen">Image to Text Converter</a></li>
-                        <li><a href="#">Document Processing</a></li>
-                        <li><a href="#">Video Content Analysis</a></li>
-                        <li><a href="#">Data Visualization</a></li>
-                        <li><a href="#">Cloud Integration</a></li>
+                        <li><a href="/Home/ImageToTextBasic">Document Processing</a></li>
+                        <li><a href="http://localhost:5080/DetectionView/Index" target="_blank" rel="noopener noreferrer">Video Content Analysis</a></li>
+                        <li><a href="http://localhost:5078/api/system/memory?count=60" target="_blank" rel="noopener noreferrer">Data Visualization</a></li>
+                        <li><a href="http://localhost:5078/api/detection/active-sessions" target="_blank" rel="noopener noreferrer">Cloud Integration</a></li>
                     </ul>
                 </div>
 
                 <div class="footer-column">
                     <h3>Resources</h3>
                     <ul class="footer-links">
-                        <li><a href="#">Documentation</a></li>
-                        <li><a href="#">Tutorials</a></li>
-                        <li><a href="#">API Reference</a></li>
-                        <li><a href="#">Blog</a></li>
-                        <li><a href="#">Support</a></li>
+                        <li><a href="/ready">Documentation</a></li>
+                        <li><a href="http://localhost:5080/" target="_blank" rel="noopener noreferrer">Tutorials</a></li>
+                        <li><a href="http://localhost:5078/api/detection/health" target="_blank" rel="noopener noreferrer">API Reference</a></li>
+                        <li><a href="http://localhost:5078/api/system/logs?count=50" target="_blank" rel="noopener noreferrer">Logs</a></li>
+                        <li><a href="http://localhost:5078/api/system/health" target="_blank" rel="noopener noreferrer">Support Health</a></li>
                     </ul>
                 </div>
 
                 <div class="footer-column">
                     <h3>Company</h3>
                     <ul class="footer-links">
-                        <li><a href="#">About Us</a></li>
+                        <li><a href="#features">About Us</a></li>
                         <li><a href="#">Careers</a></li>
-                        <li><a href="#">Privacy Policy</a></li>
+                        <li><a href="http://localhost:5080/Home/Privacy" target="_blank" rel="noopener noreferrer">Privacy Policy</a></li>
                         <li><a href="#">Terms of Service</a></li>
-                        <li><a href="#">Contact</a></li>
+                        <li><a href="#modules">Contact</a></li>
                     </ul>
                 </div>
             </div>
@@ -1562,6 +1607,40 @@
                 });
             }
         });
+
+        // Environment link switcher (local / staging / production)
+        const envProfiles = {
+            local: {
+                uiBase: '@uiBase',
+                apiBase: '@apiBase'
+            },
+            staging: {
+                uiBase: 'https://staging-ui.star-multimedia.local',
+                apiBase: 'https://staging-api.star-multimedia.local'
+            },
+            production: {
+                uiBase: 'https://ui.star-multimedia.com',
+                apiBase: 'https://api.star-multimedia.com'
+            }
+        };
+
+        function applyEnvironment(envKey) {
+            const env = envProfiles[envKey] || envProfiles.local;
+            localStorage.setItem('star-multimedia-env', envKey);
+            document.querySelectorAll('a[href]').forEach(anchor => {
+                if (!anchor.dataset.originalHref) {
+                    anchor.dataset.originalHref = anchor.getAttribute('href');
+                }
+                const originalHref = anchor.dataset.originalHref;
+                if (!originalHref) return;
+
+                let nextHref = originalHref
+                    .replace(/http:\/\/localhost:5080/gi, env.uiBase)
+                    .replace(/http:\/\/localhost:5078/gi, env.apiBase);
+
+                anchor.setAttribute('href', nextHref);
+            });
+        }
 
         // Thriller sound FX (WebAudio, no external assets)
         let audioCtx = null;
@@ -1752,6 +1831,15 @@
             handleScrollAnimations();
             initMenuEntryAnimations();
             initMenuSoundFx();
+
+            const environmentSelect = document.getElementById('environmentSelect');
+            const savedEnv = localStorage.getItem('star-multimedia-env') || 'local';
+            if (environmentSelect) {
+                environmentSelect.value = savedEnv;
+                environmentSelect.addEventListener('change', (e) => applyEnvironment(e.target.value));
+            }
+            applyEnvironment(savedEnv);
+
             const introPlayBtn = document.getElementById('introPlayBtn');
             const introStopBtn = document.getElementById('introStopBtn');
             if (introPlayBtn) introPlayBtn.addEventListener('click', playIntroNarration);

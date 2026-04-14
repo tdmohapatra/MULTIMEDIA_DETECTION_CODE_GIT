@@ -10,6 +10,17 @@
     .scene-overlay { pointer-events: none; }
     .scene-hud { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; font-size: 12px; }
     .scene-badge { padding: 4px 10px; border-radius: 999px; background: #152238; border: 1px solid #35517f; }
+    .scene-controls-grid { display:grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; font-size: 12px; margin-bottom: 8px; }
+    .scene-status-grid { display:grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 10px 0; font-size: 12px; }
+    .scene-status-item { background:#0b1728; border:1px solid #27466f; border-radius:8px; padding:6px 8px; }
+    .scene-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; }
+    .dot-on { background:#4ade80; box-shadow: 0 0 8px #4ade80; }
+    .dot-off { background:#ef4444; box-shadow: 0 0 8px #ef4444; }
+    .scene-toast-wrap { position: fixed; right: 14px; bottom: 14px; display: flex; flex-direction: column; gap: 8px; z-index: 2000; max-width: 360px; }
+    .scene-toast { background: rgba(7, 16, 29, 0.95); color: #d8ecff; border: 1px solid #2e6faf; border-radius: 8px; padding: 8px 10px; box-shadow: 0 10px 24px rgba(0,0,0,0.38); animation: toastIn .2s ease-out; }
+    .scene-toast .t-title { font-weight: 600; font-size: 12px; }
+    .scene-toast .t-meta { font-size: 11px; opacity: 0.9; }
+    @@keyframes toastIn { from { transform: translateY(6px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 </style>
 
 <nav class="mb-2" aria-label="breadcrumb">
@@ -26,6 +37,7 @@
             Uses <code>processingMode: &quot;scene&quot;</code> on the API. VOC MobileNet-SSD when both model files are under the API <code>Uploads/models</code> folder; otherwise Haar hybrid (face, full-body, optional cat face cascade).
             Frame timing logs: API <code>Uploads/frame-logs/&lt;sessionId&gt;.log</code>.
         </p>
+        <a class="btn btn-outline-info btn-sm mb-2" asp-controller="DetectionClient" asp-action="ModelCanvas">Open Bigger Model Canvas Screen</a>
         <div class="scene-shell">
             <div class="scene-stack">
                 <video id="sceneVideo" autoplay playsinline class="scene-video"></video>
@@ -36,6 +48,9 @@
                 <span class="scene-badge">Frame time: <strong id="sceneFrameMs">0</strong> ms</span>
                 <span class="scene-badge">Summary: <strong id="sceneSummary">—</strong></span>
                 <span class="scene-badge">WS: <span id="sceneWs">—</span></span>
+                <span class="scene-badge">Detectors: <strong id="sceneDetectorHealth">—</strong></span>
+                <span class="scene-badge">SLO: <strong id="sceneSloStatus">—</strong></span>
+                <span class="scene-badge">Stage split: <strong id="sceneStageSplit">d:0 p:0 r:0</strong></span>
             </div>
         </div>
         <canvas id="sceneCapture" class="d-none"></canvas>
@@ -47,21 +62,67 @@
                 <input id="sceneApiBase" class="form-control form-control-sm mb-2" value="@apiBaseUrl" />
                 <label class="form-label">Session Id</label>
                 <input id="sceneSessionId" class="form-control form-control-sm mb-2" />
+                <div class="scene-controls-grid">
+                    <label><input id="scIncludeHuman" type="checkbox" checked /> Human</label>
+                    <label><input id="scIncludeAnimal" type="checkbox" /> Animal</label>
+                    <label><input id="scIncludeObject" type="checkbox" /> Object</label>
+                    <label><input id="scProcessAll" type="checkbox" /> Process all models</label>
+                    <label><input id="scSsd" type="checkbox" /> SSD model</label>
+                    <label><input id="scFace" type="checkbox" checked /> Face cascade</label>
+                    <label><input id="scFullbody" type="checkbox" /> Full-body cascade</label>
+                    <label><input id="scCat" type="checkbox" /> Cat cascade</label>
+                </div>
                 <div class="d-flex gap-2 mb-2">
                     <button id="sceneStartBtn" type="button" class="btn btn-primary btn-sm">Start</button>
                     <button id="sceneStopBtn" type="button" class="btn btn-secondary btn-sm">Stop</button>
                 </div>
+                <label class="form-label">Accuracy preset</label>
+                <select id="scenePreset" class="form-select form-select-sm mb-2">
+                    <option value="balanced" selected>Balanced</option>
+                    <option value="humanFocus">Human Focus</option>
+                    <option value="animalStrict">Animal Strict</option>
+                    <option value="allDetail">All Detail</option>
+                </select>
                 <label class="form-label">FPS</label>
-                <input id="sceneFps" type="range" min="2" max="30" value="10" class="form-range" />
-                <small class="text-muted"><span id="sceneFpsVal">10</span> fps</small>
+                <input id="sceneFps" type="range" min="0.5" max="200" step="0.5" value="10" class="form-range" />
+                <small class="text-muted"><span id="sceneFpsVal">10.0</span> fps</small>
+                <label class="form-label mt-2">Resolution</label>
+                <select id="sceneResolution" class="form-select form-select-sm">
+                    <option value="320x180">Small (320x180)</option>
+                    <option value="640x360" selected>Medium (640x360)</option>
+                    <option value="854x480">Large (854x480)</option>
+                    <option value="1280x720">HD (1280x720)</option>
+                    <option value="1920x1080">Full HD (1920x1080)</option>
+                    <option value="native">Native camera</option>
+                </select>
+                <label class="form-label mt-2">SSD confidence threshold</label>
+                <input id="scSsdThresh" type="range" min="0.05" max="0.95" step="0.01" value="0.35" class="form-range" />
+                <small class="text-muted"><span id="scSsdThreshVal">0.35</span></small>
+                <label class="form-label mt-2">Full-body strictness (neighbors)</label>
+                <input id="scBodyNeighbors" type="range" min="1" max="12" step="1" value="3" class="form-range" />
+                <small class="text-muted"><span id="scBodyNeighborsVal">3</span></small>
+                <label class="form-label mt-2">Cat strictness (neighbors)</label>
+                <input id="scCatNeighbors" type="range" min="1" max="16" step="1" value="6" class="form-range" />
+                <small class="text-muted"><span id="scCatNeighborsVal">6</span></small>
+                <label class="form-label mt-2">Cat minimum area ratio</label>
+                <input id="scCatAreaRatio" type="range" min="0.0005" max="0.02" step="0.0005" value="0.004" class="form-range" />
+                <small class="text-muted"><span id="scCatAreaRatioVal">0.0040</span></small>
+                <div class="scene-status-grid">
+                    <div class="scene-status-item"><span class="scene-dot dot-off" id="stSsd"></span>SSD model</div>
+                    <div class="scene-status-item"><span class="scene-dot dot-off" id="stFace"></span>Face cascade</div>
+                    <div class="scene-status-item"><span class="scene-dot dot-off" id="stBody"></span>Full-body cascade</div>
+                    <div class="scene-status-item"><span class="scene-dot dot-off" id="stCat"></span>Cat cascade</div>
+                </div>
                 <pre id="sceneJson" class="small bg-dark text-info p-2 mt-2 border rounded" style="max-height:220px;overflow:auto;"></pre>
             </div>
         </div>
     </div>
 </div>
+<div id="sceneToastWrap" class="scene-toast-wrap"></div>
 
 @section Scripts {
 <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.7/signalr.min.js"></script>
+<script src="~/js/sceneSharedClient.js"></script>
 <script>
 (() => {
     const video = document.getElementById('sceneVideo');
@@ -71,14 +132,44 @@
     const sessionInput = document.getElementById('sceneSessionId');
     const fpsInput = document.getElementById('sceneFps');
     const fpsVal = document.getElementById('sceneFpsVal');
+    const resolutionSelect = document.getElementById('sceneResolution');
     const jsonOut = document.getElementById('sceneJson');
-    let stream = null;
-    let frame = 0;
-    let inFlight = false;
-    let lastAt = 0;
-    let rafHandle = null;
-    let hubConnection = null;
-    let useWs = false;
+    const toastWrap = document.getElementById('sceneToastWrap');
+    const scIncludeHuman = document.getElementById('scIncludeHuman');
+    const scIncludeAnimal = document.getElementById('scIncludeAnimal');
+    const scIncludeObject = document.getElementById('scIncludeObject');
+    const scProcessAll = document.getElementById('scProcessAll');
+    const scSsd = document.getElementById('scSsd');
+    const scFace = document.getElementById('scFace');
+    const scFullbody = document.getElementById('scFullbody');
+    const scCat = document.getElementById('scCat');
+    const scenePreset = document.getElementById('scenePreset');
+    const scSsdThresh = document.getElementById('scSsdThresh');
+    const scSsdThreshVal = document.getElementById('scSsdThreshVal');
+    const scBodyNeighbors = document.getElementById('scBodyNeighbors');
+    const scBodyNeighborsVal = document.getElementById('scBodyNeighborsVal');
+    const scCatNeighbors = document.getElementById('scCatNeighbors');
+    const scCatNeighborsVal = document.getElementById('scCatNeighborsVal');
+    const scCatAreaRatio = document.getElementById('scCatAreaRatio');
+    const scCatAreaRatioVal = document.getElementById('scCatAreaRatioVal');
+    const stSsd = document.getElementById('stSsd');
+    const stFace = document.getElementById('stFace');
+    const stBody = document.getElementById('stBody');
+    const stCat = document.getElementById('stCat');
+    const sceneSloStatus = document.getElementById('sceneSloStatus');
+    const sceneStageSplit = document.getElementById('sceneStageSplit');
+    let lastDiagFetchAt = 0;
+    const toastDetection = SceneSharedClient.createToaster({
+        wrap: toastWrap,
+        toastClass: 'scene-toast',
+        titleClass: 't-title',
+        metaClass: 't-meta'
+    });
+    const transport = SceneSharedClient.createDetectionTransport({
+        getBaseUrl: () => baseUrl(),
+        getSessionId: () => sid(),
+        onConnectionModeChanged: (mode) => { document.getElementById('sceneWs').textContent = mode; }
+    });
 
     function baseUrl() { return apiInput.value.replace(/\/$/, ''); }
     function sid() { return sessionInput.value.trim(); }
@@ -90,30 +181,92 @@
     };
 
     sessionInput.value = `ui-${crypto.randomUUID().slice(0, 8)}`;
-    fpsInput.addEventListener('input', () => { fpsVal.textContent = fpsInput.value; });
+    fpsInput.addEventListener('input', () => { fpsVal.textContent = Number(fpsInput.value).toFixed(1); });
+    scSsdThresh.addEventListener('input', () => { scSsdThreshVal.textContent = Number(scSsdThresh.value).toFixed(2); });
+    scBodyNeighbors.addEventListener('input', () => { scBodyNeighborsVal.textContent = `${parseInt(scBodyNeighbors.value, 10) || 3}`; });
+    scCatNeighbors.addEventListener('input', () => { scCatNeighborsVal.textContent = `${parseInt(scCatNeighbors.value, 10) || 6}`; });
+    scCatAreaRatio.addEventListener('input', () => { scCatAreaRatioVal.textContent = Number(scCatAreaRatio.value).toFixed(4); });
+    scenePreset.addEventListener('change', () => applyPreset(scenePreset.value));
 
-    async function connectHub() {
-        if (!window.signalR || hubConnection) return;
-        hubConnection = new signalR.HubConnectionBuilder()
-            .withUrl(`${baseUrl()}/detectionHub`)
-            .withAutomaticReconnect()
-            .build();
+    function applyPreset(preset) {
+        const p = preset || 'balanced';
+        if (p === 'humanFocus') {
+            scIncludeHuman.checked = true; scIncludeAnimal.checked = false; scIncludeObject.checked = false;
+            scProcessAll.checked = false; scSsd.checked = false; scFace.checked = true; scFullbody.checked = true; scCat.checked = false;
+            scSsdThresh.value = '0.55'; scBodyNeighbors.value = '4'; scCatNeighbors.value = '8'; scCatAreaRatio.value = '0.006';
+        } else if (p === 'animalStrict') {
+            scIncludeHuman.checked = true; scIncludeAnimal.checked = true; scIncludeObject.checked = false;
+            scProcessAll.checked = false; scSsd.checked = true; scFace.checked = true; scFullbody.checked = false; scCat.checked = true;
+            scSsdThresh.value = '0.50'; scBodyNeighbors.value = '4'; scCatNeighbors.value = '10'; scCatAreaRatio.value = '0.008';
+        } else if (p === 'allDetail') {
+            scIncludeHuman.checked = true; scIncludeAnimal.checked = true; scIncludeObject.checked = true;
+            scProcessAll.checked = true; scSsd.checked = true; scFace.checked = true; scFullbody.checked = true; scCat.checked = true;
+            scSsdThresh.value = '0.30'; scBodyNeighbors.value = '3'; scCatNeighbors.value = '6'; scCatAreaRatio.value = '0.004';
+        } else {
+            scIncludeHuman.checked = true; scIncludeAnimal.checked = false; scIncludeObject.checked = false;
+            scProcessAll.checked = false; scSsd.checked = false; scFace.checked = true; scFullbody.checked = false; scCat.checked = false;
+            scSsdThresh.value = '0.35'; scBodyNeighbors.value = '3'; scCatNeighbors.value = '6'; scCatAreaRatio.value = '0.004';
+        }
+        scSsdThreshVal.textContent = Number(scSsdThresh.value).toFixed(2);
+        scBodyNeighborsVal.textContent = `${parseInt(scBodyNeighbors.value, 10) || 3}`;
+        scCatNeighborsVal.textContent = `${parseInt(scCatNeighbors.value, 10) || 6}`;
+        scCatAreaRatioVal.textContent = Number(scCatAreaRatio.value).toFixed(4);
+    }
+
+    function sceneOptions() {
+        return SceneSharedClient.buildSceneOptions({
+            includeHuman: scIncludeHuman,
+            includeAnimal: scIncludeAnimal,
+            includeObject: scIncludeObject,
+            processAll: scProcessAll,
+            ssd: scSsd,
+            face: scFace,
+            fullBody: scFullbody,
+            cat: scCat,
+            ssdConfidenceThreshold: scSsdThresh,
+            fullBodyMinNeighbors: scBodyNeighbors,
+            catMinNeighbors: scCatNeighbors,
+            catMinAreaRatio: scCatAreaRatio
+        });
+    }
+
+    function selectedResolution() {
+        const val = resolutionSelect.value;
+        if (!val || val === 'native') return null;
+        const [w, h] = val.split('x').map(v => Number(v));
+        if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return null;
+        return { w, h };
+    }
+
+    function setStatusDot(el, on) {
+        SceneSharedClient.setStatusDot(el, on, 'dot-on', 'dot-off');
+    }
+
+    SceneSharedClient.bindProcessAll(scProcessAll, [scSsd, scFace, scFullbody, scCat]);
+    applyPreset('balanced');
+
+    async function refreshDiagnostics() {
+        const now = Date.now();
+        if (now - lastDiagFetchAt < 2000) return;
+        lastDiagFetchAt = now;
         try {
-            await hubConnection.start();
-            await hubConnection.invoke('JoinSession', sid());
-            useWs = true;
-            document.getElementById('sceneWs').textContent = 'Connected';
-        } catch (e) {
-            console.warn(e);
-            useWs = false;
-            document.getElementById('sceneWs').textContent = 'HTTP';
+            const r = await fetch(`${baseUrl()}/api/detection/detector-diagnostics/${encodeURIComponent(sid())}`);
+            if (!r.ok) return;
+            const d = await r.json();
+            const avg = d.averageTimings || {};
+            const totalMs = Number(avg.totalMs || 0);
+            sceneStageSplit.textContent = `d:${Number(avg.decodeMs || 0).toFixed(1)} p:${Number(avg.detectionMs || 0).toFixed(1)} r:${Number(avg.renderMs || 0).toFixed(1)}`;
+            const sloText = totalMs > 180 ? 'bad' : totalMs > 90 ? 'warn' : 'good';
+            sceneSloStatus.textContent = `${sloText} (${totalMs.toFixed(1)}ms)`;
+        } catch {
+            // Keep scene loop resilient.
         }
     }
 
-    async function processFrame() {
-        if (!stream) return;
-        const w = video.videoWidth || 640;
-        const h = video.videoHeight || 360;
+    async function processFrame(frameNo) {
+        const sel = selectedResolution();
+        const w = sel?.w || video.videoWidth || 640;
+        const h = sel?.h || video.videoHeight || 360;
         capture.width = w;
         capture.height = h;
         overlay.width = w;
@@ -123,37 +276,32 @@
         const imageData = capture.toDataURL('image/jpeg', 0.55);
         const payload = {
             sessionId: sid(),
-            frameNumber: ++frame,
+            frameNumber: frameNo,
             timestamp: Date.now(),
             imageData,
-            processingMode: 'scene'
+            processingMode: 'scene',
+            sceneOptions: sceneOptions()
         };
 
-        let data = null;
-        if (useWs && hubConnection) {
-            try {
-                data = await hubConnection.invoke('ProcessFrame', payload);
-            } catch {
-                useWs = false;
-            }
-        }
-        if (!data) {
-            const r = await fetch(`${baseUrl()}/api/detection/process-frame`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-            if (!r.ok) {
-                jsonOut.textContent = await r.text();
-                return;
-            }
-            data = await r.json();
+        const data = await transport.processFrame(payload);
+        if (data?.__httpError) {
+            jsonOut.textContent = data.text || `HTTP ${data.status}`;
+            return;
         }
 
         const sa = data.sceneAnalysis || {};
+        const ms = sa.modelStatus || {};
         document.getElementById('scenePipeline').textContent = sa.pipeline || '—';
         document.getElementById('sceneFrameMs').textContent = (sa.frameProcessingMs ?? 0).toFixed(1);
         document.getElementById('sceneSummary').textContent = sa.summary || 'none';
+        setStatusDot(stSsd, !!ms.ssdLoaded && !!ms.ssdRequested);
+        setStatusDot(stFace, !!ms.faceCascadeReady && !!ms.faceCascadeRequested);
+        setStatusDot(stBody, !!ms.fullBodyReady && !!ms.fullBodyRequested);
+        setStatusDot(stCat, !!ms.catCascadeReady && !!ms.catCascadeRequested);
+        const detectorHealth = data.detectorHealth || {};
+        const readyCount = [detectorHealth.faceCascadeReady, detectorHealth.eyeCascadeReady, detectorHealth.handCascadeReady, detectorHealth.fullBodyCascadeReady, detectorHealth.catCascadeReady]
+            .filter(Boolean).length;
+        document.getElementById('sceneDetectorHealth').textContent = `${readyCount}/5 ready${detectorHealth.ssdLoaded ? ', SSD on' : ''}`;
 
         const octx = overlay.getContext('2d');
         octx.clearRect(0, 0, overlay.width, overlay.height);
@@ -169,6 +317,13 @@
             octx.fillStyle = col;
             const label = `${ent.category}: ${ent.label}`;
             octx.fillText(label, bb.x, Math.max(12, bb.y - 4));
+            toastDetection('Detected', `${ent.category} / ${ent.label} (${ent.source || 'n/a'})`);
+        });
+
+        (data.logs || []).forEach(log => {
+            if ((log.level || '').toLowerCase() === 'warning' || (log.level || '').toLowerCase() === 'error') {
+                toastDetection(`Log ${log.level}`, log.message || '');
+            }
         });
 
         jsonOut.textContent = JSON.stringify({
@@ -178,47 +333,33 @@
             entities: entities.length,
             notes: sa.notes
         }, null, 2);
+        await refreshDiagnostics();
     }
 
-    function loop() {
-        const tick = async () => {
-            if (!stream) return;
-            const interval = 1000 / Math.max(2, parseInt(fpsInput.value, 10) || 10);
-            const now = performance.now();
-            if (!inFlight && (now - lastAt) >= interval) {
-                inFlight = true;
-                lastAt = now;
-                try { await processFrame(); } finally { inFlight = false; }
-            }
-            rafHandle = requestAnimationFrame(tick);
-        };
-        rafHandle = requestAnimationFrame(tick);
-    }
+    const processor = SceneSharedClient.createFrameProcessor({
+        videoElement: video,
+        getConstraints: () => {
+            const sel = selectedResolution();
+            return {
+                video: sel ? { width: { ideal: sel.w }, height: { ideal: sel.h } } : true,
+                audio: false
+            };
+        },
+        getTargetFps: () => parseFloat(fpsInput.value) || 10,
+        onFrame: ({ frameNo }) => processFrame(frameNo)
+    });
 
     document.getElementById('sceneStartBtn').addEventListener('click', async () => {
-        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-        video.srcObject = stream;
-        await fetch(`${baseUrl()}/api/detection/initialize/${encodeURIComponent(sid())}`, { method: 'POST' });
-        await connectHub();
-        loop();
+        await processor.start();
+        processor.resetFrameCounter();
+        await transport.initializeSession();
+        await transport.connect();
     });
 
     document.getElementById('sceneStopBtn').addEventListener('click', async () => {
-        if (rafHandle) cancelAnimationFrame(rafHandle);
-        rafHandle = null;
-        if (stream) {
-            stream.getTracks().forEach(t => t.stop());
-            stream = null;
-        }
-        if (hubConnection) {
-            try {
-                await hubConnection.invoke('LeaveSession', sid());
-                await hubConnection.stop();
-            } catch (e) { console.warn(e); }
-            hubConnection = null;
-        }
-        await fetch(`${baseUrl()}/api/detection/cleanup/${encodeURIComponent(sid())}`, { method: 'POST' });
-        document.getElementById('sceneWs').textContent = '—';
+        await processor.stop();
+        await transport.disconnect();
+        await transport.cleanupSession();
     });
 })();
 </script>

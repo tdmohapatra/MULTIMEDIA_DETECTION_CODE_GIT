@@ -2,6 +2,7 @@ using ImgToText.Services;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.CookiePolicy;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using STAR_MUTIMEDIA.Hubs;
@@ -11,6 +12,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Diagnostics;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 var configuredTessDataPath = builder.Configuration["TessDataPath"];
@@ -18,6 +20,11 @@ var fallbackTessDataPath = Path.Combine(Directory.GetCurrentDirectory(), "Upload
 var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
 var useRedisSessions = builder.Configuration.GetValue<bool>("Session:UseRedis");
 var redisConnection = builder.Configuration.GetConnectionString("Redis");
+var maxApiRequestBytes = builder.Configuration.GetValue<long?>("Security:MaxApiRequestBytes") ?? (8 * 1024 * 1024);
+var maxMultipartBytes = builder.Configuration.GetValue<long?>("Security:MaxMultipartBytes") ?? (16 * 1024 * 1024);
+var ratePermitLimit = builder.Configuration.GetValue<int?>("Security:RateLimit:PermitLimit") ?? 120;
+var rateWindowSeconds = builder.Configuration.GetValue<int?>("Security:RateLimit:WindowSeconds") ?? 60;
+var rateQueueLimit = builder.Configuration.GetValue<int?>("Security:RateLimit:QueueLimit") ?? 20;
 var effectiveTessDataPath = string.IsNullOrWhiteSpace(configuredTessDataPath)
     ? fallbackTessDataPath
     : (Path.IsPathRooted(configuredTessDataPath)
@@ -30,6 +37,25 @@ builder.Services.AddControllersWithViews();
 builder.Services.AddSignalR(options =>
 {
     options.MaximumReceiveMessageSize = 5 * 1024 * 1024;
+});
+builder.Services.Configure<FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = maxMultipartBytes;
+});
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+    {
+        var clientKey = context.Connection.RemoteIpAddress?.ToString() ?? "unknown-client";
+        return RateLimitPartition.GetFixedWindowLimiter(clientKey, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = ratePermitLimit,
+            Window = TimeSpan.FromSeconds(rateWindowSeconds),
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            QueueLimit = rateQueueLimit
+        });
+    });
 });
 
 // Add Razor Pages support (required for MapRazorPages)
@@ -124,6 +150,7 @@ if (!app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.UseRouting();
+app.UseRateLimiter();
 app.UseSession(); // Must be before Authorization
 app.UseCookiePolicy(new CookiePolicyOptions
 {
@@ -131,6 +158,23 @@ app.UseCookiePolicy(new CookiePolicyOptions
     Secure = builder.Environment.IsDevelopment() ? CookieSecurePolicy.SameAsRequest : CookieSecurePolicy.Always
 });
 app.UseCors("AppCors");
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase))
+    {
+        var contentLength = context.Request.ContentLength ?? 0;
+        if (contentLength > maxApiRequestBytes)
+        {
+            context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
+            await context.Response.WriteAsJsonAsync(new
+            {
+                error = $"Payload too large. Max allowed is {maxApiRequestBytes} bytes."
+            });
+            return;
+        }
+    }
+    await next();
+});
 
 // Lightweight API request timing log
 app.Use(async (context, next) =>

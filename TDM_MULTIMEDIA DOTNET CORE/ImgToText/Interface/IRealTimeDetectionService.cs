@@ -32,5 +32,7 @@ namespace STAR_MUTIMEDIA.Services
         void SaveSessionProfile(string sessionId, string profileName);
         bool LoadSessionProfile(string sessionId, string profileName);
         List<string> GetSessionProfiles(string sessionId);
+        DetectorHealthSnapshot GetDetectorHealth(string sessionId = null);
+        DetectorDiagnosticsReport GetDetectorDiagnostics(string sessionId);
     }
 }

@@ -1,0 +1,473 @@
+@{
+    ViewData["Title"] = "Model Canvas";
+    var apiBaseUrl = (ViewData["ApiBaseUrl"]?.ToString() ?? "http://localhost:5078").TrimEnd('/');
+}
+
+<style>
+    .mc-page { background:#060b14; color:#eaf2ff; border:1px solid #1f3d67; border-radius:12px; padding:10px; }
+    .mc-top { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; }
+    .mc-stage { position:relative; width:100%; min-height:72vh; background:#02060d; border-radius:10px; overflow:hidden; border:1px solid #21456e; }
+    .mc-video, .mc-canvas { position:absolute; inset:0; width:100%; height:100%; }
+    .mc-video { opacity:0.22; }
+    .mc-canvas { z-index:2; }
+    .mc-hud { position:absolute; left:8px; bottom:8px; z-index:3; display:flex; gap:6px; flex-wrap:wrap; font-size:12px; }
+    .mc-badge { background:#0d1f38; border:1px solid #2d5c91; border-radius:999px; padding:4px 10px; }
+    .mc-panel-toggle { position:absolute; top:10px; right:10px; z-index:4; }
+    .mc-summary { position:absolute; top:10px; left:10px; z-index:4; background:rgba(5,14,26,0.92); border:1px solid #2d5c91; border-radius:10px; padding:8px 10px; min-width:240px; font-size:12px; }
+    .mc-summary .line { display:flex; justify-content:space-between; gap:12px; }
+    .mc-summary .line + .line { margin-top:4px; }
+    .mc-summary .val { color:#7dd3fc; font-weight:600; }
+    .mc-summary .warn { color:#fbbf24; }
+    .mc-summary .bad { color:#f87171; }
+    .mc-spark { margin-top:6px; width:220px; height:46px; background:#081427; border:1px solid #27466f; border-radius:6px; display:block; }
+    .mc-panel { position:absolute; top:0; right:0; width:350px; max-width:92vw; height:100%; background:rgba(4,12,22,0.96); border-left:1px solid #295481; z-index:5; padding:10px; transform:translateX(100%); transition:transform .22s ease; overflow:auto; }
+    .mc-panel.open { transform:translateX(0); }
+    .mc-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px 10px; font-size:12px; }
+    .mc-status-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin:8px 0; font-size:12px; }
+    .mc-status-item { background:#0b1728; border:1px solid #27466f; border-radius:8px; padding:6px 8px; }
+    .mc-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; }
+    .mc-on { background:#4ade80; box-shadow:0 0 8px #4ade80; }
+    .mc-off { background:#ef4444; box-shadow:0 0 8px #ef4444; }
+    .mc-legend { font-size:12px; display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:8px; }
+    .mc-legend div { background:#0c1b31; border:1px solid #2e5888; border-radius:8px; padding:6px; }
+    .mc-toast-wrap { position:fixed; right:16px; bottom:16px; z-index:3000; display:flex; flex-direction:column; gap:8px; max-width:340px; }
+    .mc-toast { background:rgba(7,16,29,0.96); color:#d8ecff; border:1px solid #2e6faf; border-radius:8px; padding:8px 10px; box-shadow:0 10px 24px rgba(0,0,0,0.38); animation:mcToastIn .2s ease-out; }
+    .mc-toast .t1 { font-size:12px; font-weight:600; }
+    .mc-toast .t2 { font-size:11px; opacity:.9; }
+    @@keyframes mcToastIn { from { transform:translateY(6px); opacity:0; } to { transform:translateY(0); opacity:1; } }
+</style>
+
+<div class="mc-page">
+    <div class="mc-top">
+        <div>
+            <h4 class="mb-1">Live Model Canvas (Shape + Color Coded)</h4>
+            <div class="small text-info">Human: yellow round + skeleton, Face: green round, Car: red triangle, Bike: red rectangle, Cat: blue round, Dog: green square.</div>
+        </div>
+        <a class="btn btn-sm btn-outline-info" asp-controller="DetectionClient" asp-action="SceneAnalysis">Open Scene Analysis</a>
+    </div>
+
+    <div class="mc-stage">
+        <video id="mcVideo" class="mc-video" autoplay playsinline></video>
+        <canvas id="mcCanvas" class="mc-canvas"></canvas>
+        <canvas id="mcCapture" class="d-none"></canvas>
+        <button id="mcPanelToggle" class="btn btn-sm btn-primary mc-panel-toggle" type="button">Settings</button>
+        <div class="mc-summary">
+            <div class="line"><span>Active models</span><span id="mcActiveModels" class="val">—</span></div>
+            <div class="line"><span>Avg frame ms</span><span id="mcAvgMs" class="val">0.0</span></div>
+            <div class="line"><span>Dropped frames</span><span id="mcDropFrames" class="val">0</span></div>
+            <div class="line"><span>Last warning</span><span id="mcLastWarn" class="val">none</span></div>
+            <div class="line"><span>Stage split</span><span id="mcDiagSplit" class="val">d:0 p:0 r:0</span></div>
+            <div class="line"><span>Source mix</span><span id="mcDiagSources" class="val">—</span></div>
+            <canvas id="mcSpark" class="mc-spark" width="220" height="46"></canvas>
+        </div>
+
+        <div class="mc-hud">
+            <span class="mc-badge">Pipeline: <strong id="mcPipeline">—</strong></span>
+            <span class="mc-badge">FPS: <strong id="mcFpsNow">0</strong></span>
+            <span class="mc-badge">Frame: <strong id="mcFrameMs">0</strong> ms</span>
+            <span class="mc-badge">Summary: <strong id="mcSummary">—</strong></span>
+        </div>
+
+        <aside id="mcPanel" class="mc-panel">
+            <label class="form-label">API Base Url</label>
+            <input id="mcApiBase" class="form-control form-control-sm mb-2" value="@apiBaseUrl" />
+            <label class="form-label">Session Id</label>
+            <input id="mcSessionId" class="form-control form-control-sm mb-2" />
+            <div class="d-flex gap-2 mb-2">
+                <button id="mcStart" type="button" class="btn btn-success btn-sm">Start</button>
+                <button id="mcStop" type="button" class="btn btn-secondary btn-sm">Stop</button>
+            </div>
+
+            <label class="form-label">FPS (0.5 - 200)</label>
+            <input id="mcFps" type="range" min="0.5" max="200" step="0.5" value="20" class="form-range" />
+            <small class="text-muted d-block mb-2"><span id="mcFpsVal">20.0</span> fps</small>
+
+            <label class="form-label">Resolution</label>
+            <select id="mcRes" class="form-select form-select-sm mb-2">
+                <option value="320x180">Small 320x180</option>
+                <option value="640x360" selected>Medium 640x360</option>
+                <option value="854x480">Large 854x480</option>
+                <option value="1280x720">HD 1280x720</option>
+                <option value="1920x1080">Full HD 1920x1080</option>
+                <option value="native">Native</option>
+            </select>
+            <label class="form-label">Accuracy preset</label>
+            <select id="mcPreset" class="form-select form-select-sm mb-2">
+                <option value="balanced" selected>Balanced</option>
+                <option value="humanFocus">Human Focus</option>
+                <option value="animalStrict">Animal Strict</option>
+                <option value="allDetail">All Detail</option>
+            </select>
+
+            <div class="form-check mb-2">
+                <input id="mcGray" class="form-check-input" type="checkbox" />
+                <label class="form-check-label" for="mcGray">Process as grayscale</label>
+            </div>
+
+            <div class="mc-grid mb-2">
+                <label><input id="mcHuman" type="checkbox" checked /> Human</label>
+                <label><input id="mcAnimal" type="checkbox" checked /> Animal</label>
+                <label><input id="mcObject" type="checkbox" checked /> Object</label>
+                <label><input id="mcAll" type="checkbox" checked /> Process all models</label>
+                <label><input id="mcSsd" type="checkbox" checked /> SSD</label>
+                <label><input id="mcFace" type="checkbox" checked /> Face cascade</label>
+                <label><input id="mcBody" type="checkbox" checked /> Full-body cascade</label>
+                <label><input id="mcCat" type="checkbox" checked /> Cat cascade</label>
+            </div>
+            <div class="mc-status-grid">
+                <div class="mc-status-item"><span class="mc-dot mc-off" id="mcStSsd"></span>SSD model</div>
+                <div class="mc-status-item"><span class="mc-dot mc-off" id="mcStFace"></span>Face cascade</div>
+                <div class="mc-status-item"><span class="mc-dot mc-off" id="mcStBody"></span>Full-body cascade</div>
+                <div class="mc-status-item"><span class="mc-dot mc-off" id="mcStCat"></span>Cat cascade</div>
+            </div>
+
+            <pre id="mcJson" class="small bg-dark text-info p-2 border rounded" style="max-height:220px;overflow:auto;"></pre>
+            <div class="mc-legend">
+                <div>Human = yellow circle + skeleton</div>
+                <div>Face = green circle</div>
+                <div>Car = red triangle</div>
+                <div>Bike = red rectangle</div>
+                <div>Cat = blue circle</div>
+                <div>Dog = green square</div>
+            </div>
+        </aside>
+    </div>
+</div>
+<div id="mcToastWrap" class="mc-toast-wrap"></div>
+
+@section Scripts {
+<script src="~/js/sceneSharedClient.js"></script>
+<script>
+(() => {
+    const video = document.getElementById('mcVideo');
+    const canvas = document.getElementById('mcCanvas');
+    const capture = document.getElementById('mcCapture');
+    const panel = document.getElementById('mcPanel');
+    const panelToggle = document.getElementById('mcPanelToggle');
+    const apiBase = document.getElementById('mcApiBase');
+    const sidInput = document.getElementById('mcSessionId');
+    const fpsInput = document.getElementById('mcFps');
+    const fpsVal = document.getElementById('mcFpsVal');
+    const resSel = document.getElementById('mcRes');
+    const presetSel = document.getElementById('mcPreset');
+    const grayChk = document.getElementById('mcGray');
+    const jsonOut = document.getElementById('mcJson');
+    const toastWrap = document.getElementById('mcToastWrap');
+    const mcStSsd = document.getElementById('mcStSsd');
+    const mcStFace = document.getElementById('mcStFace');
+    const mcStBody = document.getElementById('mcStBody');
+    const mcStCat = document.getElementById('mcStCat');
+    const mcActiveModels = document.getElementById('mcActiveModels');
+    const mcAvgMs = document.getElementById('mcAvgMs');
+    const mcDropFrames = document.getElementById('mcDropFrames');
+    const mcLastWarn = document.getElementById('mcLastWarn');
+    const mcDiagSplit = document.getElementById('mcDiagSplit');
+    const mcDiagSources = document.getElementById('mcDiagSources');
+    const mcSpark = document.getElementById('mcSpark');
+    let fpsFrames = 0, fpsStart = performance.now();
+    let droppedFrames = 0;
+    let lastDiagFetchAt = 0;
+    const frameMsHistory = [];
+
+    const opts = {
+        human: document.getElementById('mcHuman'),
+        animal: document.getElementById('mcAnimal'),
+        object: document.getElementById('mcObject'),
+        all: document.getElementById('mcAll'),
+        ssd: document.getElementById('mcSsd'),
+        face: document.getElementById('mcFace'),
+        body: document.getElementById('mcBody'),
+        cat: document.getElementById('mcCat')
+    };
+
+    sidInput.value = `mc-${crypto.randomUUID().slice(0, 8)}`;
+    panelToggle.addEventListener('click', () => panel.classList.toggle('open'));
+    fpsInput.addEventListener('input', () => fpsVal.textContent = Number(fpsInput.value).toFixed(1));
+    presetSel.addEventListener('change', () => applyPreset(presetSel.value));
+
+    function b() { return apiBase.value.replace(/\/$/, ''); }
+    function sid() { return sidInput.value.trim(); }
+    function res() {
+        if (resSel.value === 'native') return null;
+        const [w, h] = resSel.value.split('x').map(Number);
+        return { w, h };
+    }
+    function payloadOptions() {
+        return SceneSharedClient.buildSceneOptions({
+            includeHuman: opts.human,
+            includeAnimal: opts.animal,
+            includeObject: opts.object,
+            processAll: opts.all,
+            ssd: opts.ssd,
+            face: opts.face,
+            fullBody: opts.body,
+            cat: opts.cat
+        });
+    }
+
+    function applyPreset(preset) {
+        const p = preset || 'balanced';
+        if (p === 'humanFocus') {
+            opts.human.checked = true; opts.animal.checked = false; opts.object.checked = false;
+            opts.all.checked = false; opts.ssd.checked = false; opts.face.checked = true; opts.body.checked = true; opts.cat.checked = false;
+        } else if (p === 'animalStrict') {
+            opts.human.checked = true; opts.animal.checked = true; opts.object.checked = false;
+            opts.all.checked = false; opts.ssd.checked = true; opts.face.checked = true; opts.body.checked = false; opts.cat.checked = true;
+        } else if (p === 'allDetail') {
+            opts.human.checked = true; opts.animal.checked = true; opts.object.checked = true;
+            opts.all.checked = true; opts.ssd.checked = true; opts.face.checked = true; opts.body.checked = true; opts.cat.checked = true;
+        } else {
+            opts.human.checked = true; opts.animal.checked = true; opts.object.checked = true;
+            opts.all.checked = true; opts.ssd.checked = true; opts.face.checked = true; opts.body.checked = true; opts.cat.checked = true;
+        }
+    }
+
+    function setDot(el, on) {
+        SceneSharedClient.setStatusDot(el, on, 'mc-on', 'mc-off');
+    }
+
+    function updateSummary(sa, ms) {
+        const active = [];
+        if (ms.ssdRequested && ms.ssdLoaded) active.push('SSD');
+        if (ms.faceCascadeRequested && ms.faceCascadeReady) active.push('Face');
+        if (ms.fullBodyRequested && ms.fullBodyReady) active.push('Body');
+        if (ms.catCascadeRequested && ms.catCascadeReady) active.push('Cat');
+        mcActiveModels.textContent = active.length ? active.join('+') : 'none';
+
+        const msNow = Number(sa.frameProcessingMs || 0);
+        if (Number.isFinite(msNow) && msNow > 0) {
+            frameMsHistory.push(msNow);
+            if (frameMsHistory.length > 50) frameMsHistory.shift();
+        }
+        const avg = frameMsHistory.length ? frameMsHistory.reduce((a, b) => a + b, 0) / frameMsHistory.length : 0;
+        mcAvgMs.textContent = avg.toFixed(1);
+        mcAvgMs.className = `val ${avg > 180 ? 'bad' : avg > 90 ? 'warn' : ''}`.trim();
+
+        mcDropFrames.textContent = `${droppedFrames}`;
+        mcDropFrames.className = `val ${droppedFrames > 40 ? 'bad' : droppedFrames > 10 ? 'warn' : ''}`.trim();
+        drawSparkline();
+    }
+
+    function drawSparkline() {
+        if (!mcSpark) return;
+        const ctx = mcSpark.getContext('2d');
+        const w = mcSpark.width;
+        const h = mcSpark.height;
+        ctx.clearRect(0, 0, w, h);
+
+        // Baseline bands
+        ctx.fillStyle = 'rgba(74, 222, 128, 0.08)';
+        ctx.fillRect(0, h * 0.66, w, h * 0.34);
+        ctx.fillStyle = 'rgba(251, 191, 36, 0.08)';
+        ctx.fillRect(0, h * 0.33, w, h * 0.33);
+        ctx.fillStyle = 'rgba(248, 113, 113, 0.08)';
+        ctx.fillRect(0, 0, w, h * 0.33);
+
+        if (!frameMsHistory.length) return;
+        const max = Math.max(20, ...frameMsHistory);
+        const min = Math.min(...frameMsHistory, 0);
+        const range = Math.max(1, max - min);
+        const step = w / Math.max(1, frameMsHistory.length - 1);
+
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        frameMsHistory.forEach((v, i) => {
+            const x = i * step;
+            const y = h - ((v - min) / range) * (h - 4) - 2;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+    }
+
+    const toast = SceneSharedClient.createToaster({
+        wrap: toastWrap,
+        toastClass: 'mc-toast',
+        titleClass: 't1',
+        metaClass: 't2'
+    });
+    const transport = SceneSharedClient.createDetectionTransport({
+        getBaseUrl: () => b(),
+        getSessionId: () => sid()
+    });
+
+    function drawTriangle(ctx, x, y, w, h, color) {
+        ctx.strokeStyle = color; ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x + w / 2, y);
+        ctx.lineTo(x + w, y + h);
+        ctx.lineTo(x, y + h);
+        ctx.closePath();
+        ctx.stroke();
+    }
+    function drawCircle(ctx, x, y, w, h, color) {
+        ctx.strokeStyle = color; ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+    function drawRect(ctx, x, y, w, h, color) {
+        ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.strokeRect(x, y, w, h);
+    }
+    function drawSkeleton(ctx, x, y, w, h, color) {
+        const cx = x + w / 2;
+        const headY = y + h * 0.18;
+        const neckY = y + h * 0.32;
+        const hipY = y + h * 0.62;
+        ctx.strokeStyle = color; ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(cx, headY); ctx.lineTo(cx, hipY); // spine
+        ctx.moveTo(cx - w * 0.22, y + h * 0.42); ctx.lineTo(cx + w * 0.22, y + h * 0.42); // arms
+        ctx.moveTo(cx, hipY); ctx.lineTo(cx - w * 0.18, y + h * 0.95); // left leg
+        ctx.moveTo(cx, hipY); ctx.lineTo(cx + w * 0.18, y + h * 0.95); // right leg
+        ctx.stroke();
+    }
+
+    function drawEntity(ctx, ent) {
+        const bb = ent.bBox || ent.bbox;
+        if (!bb) return;
+        const x = bb.x, y = bb.y, w = bb.width, h = bb.height;
+        const label = String(ent.label || '').toLowerCase();
+        const cat = String(ent.category || '').toLowerCase();
+
+        let shape = 'rect', color = '#ffffff', text = `${ent.category}:${ent.label}`;
+        if (label.includes('face')) { shape = 'circle'; color = '#2ee66b'; text = 'Face'; }
+        else if (label.includes('person') || cat === 'human') { shape = 'circle'; color = '#ffe45e'; text = 'Human'; }
+        else if (label.includes('car')) { shape = 'triangle'; color = '#ff4d4d'; text = 'Car'; }
+        else if (label.includes('bike') || label.includes('bicycle') || label.includes('motorbike')) { shape = 'rect'; color = '#ff4d4d'; text = 'Bike'; }
+        else if (label.includes('cat')) { shape = 'circle'; color = '#4da6ff'; text = 'Cat'; }
+        else if (label.includes('dog') || label.includes('dag')) { shape = 'square'; color = '#5dff7a'; text = 'Dog'; }
+
+        if (shape === 'triangle') drawTriangle(ctx, x, y, w, h, color);
+        else if (shape === 'circle') drawCircle(ctx, x, y, w, h, color);
+        else if (shape === 'square') drawRect(ctx, x, y, Math.min(w, h), Math.min(w, h), color);
+        else drawRect(ctx, x, y, w, h, color);
+
+        if (text === 'Human') drawSkeleton(ctx, x, y, w, h, color);
+        ctx.fillStyle = color;
+        ctx.font = '13px Segoe UI';
+        ctx.fillText(text, x, Math.max(12, y - 4));
+    }
+
+    async function refreshDiagnostics() {
+        const now = Date.now();
+        if (now - lastDiagFetchAt < 2000) return;
+        lastDiagFetchAt = now;
+        try {
+            const r = await fetch(`${b()}/api/detection/detector-diagnostics/${encodeURIComponent(sid())}`);
+            if (!r.ok) return;
+            const d = await r.json();
+            const avg = d.averageTimings || {};
+            const src = d.lastEntityBySource || {};
+            const topSources = Object.entries(src).slice(0, 3).map(([k, v]) => `${k}:${v}`).join(', ');
+            mcDiagSplit.textContent = `d:${Number(avg.decodeMs || 0).toFixed(1)} p:${Number(avg.detectionMs || 0).toFixed(1)} r:${Number(avg.renderMs || 0).toFixed(1)}`;
+            mcDiagSources.textContent = topSources || 'none';
+        } catch {
+            // Keep UI responsive if diagnostics request fails.
+        }
+    }
+
+    async function processFrame(frameNo) {
+        const w = video.videoWidth || 640, h = video.videoHeight || 360;
+        capture.width = w; capture.height = h; canvas.width = w; canvas.height = h;
+        const cctx = capture.getContext('2d');
+        cctx.drawImage(video, 0, 0, w, h);
+        if (grayChk.checked) {
+            const img = cctx.getImageData(0, 0, w, h);
+            const d = img.data;
+            for (let i = 0; i < d.length; i += 4) {
+                const g = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) | 0;
+                d[i] = g; d[i + 1] = g; d[i + 2] = g;
+            }
+            cctx.putImageData(img, 0, 0);
+        }
+        const payload = {
+            sessionId: sid(),
+            frameNumber: frameNo,
+            timestamp: Date.now(),
+            imageData: capture.toDataURL('image/jpeg', 0.58),
+            processingMode: 'scene',
+            sceneOptions: payloadOptions()
+        };
+        const data = await transport.processFrame(payload);
+        if (data?.__httpError) {
+            jsonOut.textContent = data.text || `HTTP ${data.status}`;
+            mcLastWarn.textContent = `HTTP ${data.status}`;
+            mcLastWarn.className = 'val bad';
+            return;
+        }
+        const sa = data.sceneAnalysis || {};
+        const ms = sa.modelStatus || {};
+        document.getElementById('mcPipeline').textContent = sa.pipeline || '—';
+        document.getElementById('mcFrameMs').textContent = (sa.frameProcessingMs || 0).toFixed(1);
+        document.getElementById('mcSummary').textContent = sa.summary || 'none';
+        setDot(mcStSsd, !!ms.ssdLoaded && !!ms.ssdRequested);
+        setDot(mcStFace, !!ms.faceCascadeReady && !!ms.faceCascadeRequested);
+        setDot(mcStBody, !!ms.fullBodyReady && !!ms.fullBodyRequested);
+        setDot(mcStCat, !!ms.catCascadeReady && !!ms.catCascadeRequested);
+        updateSummary(sa, ms);
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        (sa.entities || []).forEach(e => {
+            drawEntity(ctx, e);
+            toast('Detected', `${e.category || 'n/a'} / ${e.label || 'n/a'} (${e.source || 'n/a'})`);
+        });
+        (data.logs || []).forEach(log => {
+            const lv = String(log.level || '').toLowerCase();
+            if (lv === 'warning' || lv === 'error') {
+                toast(`Log ${log.level || 'Warning'}`, log.message || '');
+                mcLastWarn.textContent = (log.message || 'warning').slice(0, 42);
+                mcLastWarn.className = lv === 'error' ? 'val bad' : 'val warn';
+            }
+        });
+        fpsFrames++;
+        const now = performance.now();
+        const elapsed = now - fpsStart;
+        if (elapsed >= 500) {
+            document.getElementById('mcFpsNow').textContent = ((fpsFrames * 1000) / elapsed).toFixed(1);
+            fpsFrames = 0; fpsStart = now;
+        }
+        await refreshDiagnostics();
+        jsonOut.textContent = JSON.stringify({
+            pipeline: sa.pipeline, frameProcessingMs: sa.frameProcessingMs, summary: sa.summary, entities: (sa.entities || []).length
+        }, null, 2);
+    }
+
+    const processor = SceneSharedClient.createFrameProcessor({
+        videoElement: video,
+        getConstraints: () => {
+            const r = res();
+            return { video: r ? { width: { ideal: r.w }, height: { ideal: r.h } } : true, audio: false };
+        },
+        getTargetFps: () => parseFloat(fpsInput.value) || 20,
+        onFrame: ({ frameNo }) => processFrame(frameNo),
+        onDroppedFrame: () => { droppedFrames++; }
+    });
+
+    document.getElementById('mcStart').addEventListener('click', async () => {
+        droppedFrames = 0;
+        frameMsHistory.length = 0;
+        fpsFrames = 0;
+        fpsStart = performance.now();
+        mcLastWarn.textContent = 'none';
+        mcLastWarn.className = 'val';
+        mcDiagSplit.textContent = 'd:0 p:0 r:0';
+        mcDiagSources.textContent = '—';
+        drawSparkline();
+        await processor.start();
+        processor.resetFrameCounter();
+        await transport.initializeSession();
+        await transport.connect();
+    });
+    document.getElementById('mcStop').addEventListener('click', async () => {
+        await processor.stop();
+        await transport.disconnect();
+        await transport.cleanupSession();
+    });
+
+    SceneSharedClient.bindProcessAll(opts.all, [opts.ssd, opts.face, opts.body, opts.cat]);
+    applyPreset('balanced');
+})();
+</script>
+}

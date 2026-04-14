@@ -1,96 +1,2001 @@
-@{
-    ViewData["Title"] = "Home";
-    var api = (ViewData["ApiBaseUrl"]?.ToString() ?? "http://localhost:5078").TrimEnd('/');
+﻿@{
+    var apiBase = (ViewData["ApiBaseUrl"]?.ToString() ?? $"{Context.Request.Scheme}://{Context.Request.Host}").TrimEnd('/');
+    var uiBase = $"{Context.Request.Scheme}://{Context.Request.Host}";
 }
+    @* @{
+        Layout = null;
+    }
+ *@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>STAR MULTIMEDIA - Advanced Digital Solutions</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --primary-light: #818cf8;
+            --secondary: #8b5cf6;
+            --accent: #ec4899;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --dark: #0f172a;
+            --dark-light: #1e293b;
+            --light: #f8fafc;
+            --text: #e2e8f0;
+            --text-muted: #94a3b8;
+        }
 
-<div class="app-dashboard">
-    <div class="app-dashboard-hero mb-4">
-        <h1 class="h3 mb-2">Our Powerful Modules</h1>
-        <p class="text-secondary mb-0">
-            Choose a feature below. The live camera pipeline runs on the detection page; keep the API running on port <strong>5078</strong>.
-        </p>
-    </div>
+        /* Theme variables */
+        .theme-default {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --primary-light: #818cf8;
+            --secondary: #8b5cf6;
+            --accent: #ec4899;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --dark: #0f172a;
+            --dark-light: #1e293b;
+            --light: #f8fafc;
+            --text: #e2e8f0;
+            --text-muted: #94a3b8;
+        }
 
-    <div class="row g-3">
-        <div class="col-md-6 col-xl-4">
-            <div class="card feature-card h-100 shadow-sm border-0">
-                <div class="card-body d-flex flex-column">
-                    <span class="feature-badge mb-2">Primary</span>
-                    <h2 class="h5 card-title">Real-time human tracking &amp; behavior</h2>
-                    <p class="card-text text-secondary small flex-grow-1">
-                        Camera, overlays, trail analytics, gestures, affect, and behavior scores. Uses the detection API over HTTP or SignalR.
-                    </p>
-                    <a class="btn btn-primary" asp-controller="DetectionClient" asp-action="DetectionView">Open live workspace</a>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-6 col-xl-4">
-            <div class="card feature-card h-100 shadow-sm border-0">
-                <div class="card-body d-flex flex-column">
-                    <span class="feature-badge mb-2">Scene</span>
-                    <h2 class="h5 card-title">Humans, animals &amp; objects</h2>
-                    <p class="card-text text-secondary small flex-grow-1">
-                        Separate pipeline: classifies people vs. pets (e.g. cat, dog) and common objects when SSD models are installed; frame-time logs on the API host.
-                    </p>
-                    <a class="btn btn-outline-primary" asp-controller="DetectionClient" asp-action="SceneAnalysis">Open scene analysis</a>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-6 col-xl-4">
-            <div class="card feature-card h-100 shadow-sm border-0">
-                <div class="card-body d-flex flex-column">
-                    <span class="feature-badge feature-badge-muted mb-2">Service</span>
-                    <h2 class="h5 card-title">Detection API status</h2>
-                    <p class="card-text text-secondary small flex-grow-1">
-                        Quick health check JSON (opens in a new tab). Start the API with the launcher script or <code>dotnet run</code> in the ImgToText project.
-                    </p>
-                    <a class="btn btn-outline-secondary" href="@api/api/detection/health" target="_blank" rel="noopener">Open health endpoint</a>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-6 col-xl-4">
-            <div class="card feature-card h-100 shadow-sm border-0">
-                <div class="card-body d-flex flex-column">
-                    <span class="feature-badge feature-badge-muted mb-2">Info</span>
-                    <h2 class="h5 card-title">Privacy</h2>
-                    <p class="card-text text-secondary small flex-grow-1">
-                        Application privacy placeholder page.
-                    </p>
-                    <a class="btn btn-outline-secondary" asp-controller="Home" asp-action="Privacy">Open privacy</a>
-                </div>
-            </div>
-        </div>
-    </div>
+        .theme-ocean {
+            --primary: #0ea5e9;
+            --primary-dark: #0284c7;
+            --primary-light: #38bdf8;
+            --secondary: #0891b2;
+            --accent: #06b6d4;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --dark: #0c4a6e;
+            --dark-light: #0369a1;
+            --light: #f0f9ff;
+            --text: #e0f2fe;
+            --text-muted: #7dd3fc;
+        }
 
-    <div class="card feature-card shadow-sm border-0 mt-4">
-        <div class="card-body">
-            <h2 class="h5 mb-3">Quick links (with context)</h2>
-            <ul class="mb-0">
-                <li class="mb-2">
-                    <a href="http://localhost:5080/" target="_blank" rel="noopener">http://localhost:5080/</a>
-                    <span class="text-secondary"> - Main menu / landing page</span>
-                </li>
-                <li class="mb-2">
-                    <a href="http://localhost:5080/DetectionView" target="_blank" rel="noopener">http://localhost:5080/DetectionView</a>
-                    <span class="text-secondary"> - Live tracking and behavior workspace</span>
-                </li>
-                <li class="mb-2">
-                    <a href="http://localhost:5080/DetectionView/Index" target="_blank" rel="noopener">http://localhost:5080/DetectionView/Index</a>
-                    <span class="text-secondary"> - Same live tracking page (alias route)</span>
-                </li>
-                <li class="mb-2">
-                    <a href="http://localhost:5080/DetectionClient/SceneAnalysis" target="_blank" rel="noopener">http://localhost:5080/DetectionClient/SceneAnalysis</a>
-                    <span class="text-secondary"> - Humans / animals / objects scene analysis</span>
-                </li>
-                <li class="mb-2">
-                    <a href="http://localhost:5080/Home/Privacy" target="_blank" rel="noopener">http://localhost:5080/Home/Privacy</a>
-                    <span class="text-secondary"> - Privacy page</span>
-                </li>
-                <li>
-                    <a href="@api/api/detection/health" target="_blank" rel="noopener">@api/api/detection/health</a>
-                    <span class="text-secondary"> - Detection API health endpoint</span>
-                </li>
-            </ul>
+        .theme-forest {
+            --primary: #059669;
+            --primary-dark: #047857;
+            --primary-light: #10b981;
+            --secondary: #059669;
+            --accent: #10b981;
+            --success: #10b981;
+            --warning: #d97706;
+            --dark: #064e3b;
+            --dark-light: #065f46;
+            --light: #ecfdf5;
+            --text: #d1fae5;
+            --text-muted: #6ee7b7;
+        }
+
+        .theme-sunset {
+            --primary: #ea580c;
+            --primary-dark: #c2410c;
+            --primary-light: #fb923c;
+            --secondary: #dc2626;
+            --accent: #f97316;
+            --success: #16a34a;
+            --warning: #eab308;
+            --dark: #431407;
+            --dark-light: #7c2d12;
+            --light: #fff7ed;
+            --text: #fed7aa;
+            --text-muted: #fdba74;
+        }
+
+        .theme-purple {
+            --primary: #9333ea;
+            --primary-dark: #7c3aed;
+            --primary-light: #a855f7;
+            --secondary: #c026d3;
+            --accent: #d946ef;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --dark: #3f0f6f;
+            --dark-light: #581c87;
+            --light: #faf5ff;
+            --text: #e9d5ff;
+            --text-muted: #c084fc;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--dark);
+            color: var(--text);
+            line-height: 1.6;
+            overflow-x: hidden;
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+
+        body.page-transitioning {
+            opacity: 0.92;
+            transform: scale(0.995);
+            filter: blur(1.5px);
+            transition: opacity 0.2s ease, transform 0.2s ease, filter 0.2s ease;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        /* Animated Background */
+        .animated-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -2;
+            background: radial-gradient(circle at 15% 50%, rgba(var(--primary-rgb, 99, 102, 241), 0.1) 0%, transparent 25%), radial-gradient(circle at 85% 30%, rgba(var(--secondary-rgb, 139, 92, 246), 0.1) 0%, transparent 25%), radial-gradient(circle at 50% 80%, rgba(var(--accent-rgb, 236, 72, 153), 0.05) 0%, transparent 25%);
+            animation: bgShift 20s ease-in-out infinite;
+        }
+
+        @@keyframes bgShift {
+            0%, 100%
+
+        {
+            transform: scale(1) rotate(0deg);
+        }
+
+        50% {
+            transform: scale(1.05) rotate(1deg);
+        }
+
+        }
+
+        /* Floating Particles */
+        .particles {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+        }
+
+        .particle {
+            position: absolute;
+            background: var(--primary-light);
+            border-radius: 50%;
+            opacity: 0.3;
+            animation: float 15s infinite linear;
+        }
+
+        @@keyframes float {
+            0%
+
+        {
+            transform: translateY(0) translateX(0);
+        }
+
+        25% {
+            transform: translateY(-20px) translateX(10px);
+        }
+
+        50% {
+            transform: translateY(0) translateX(20px);
+        }
+
+        75% {
+            transform: translateY(20px) translateX(10px);
+        }
+
+        100% {
+            transform: translateY(0) translateX(0);
+        }
+
+        }
+
+        /* Container */
+        .container {
+            width: 100%;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        /* Header */
+        header {
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            position: fixed;
+            width: 100%;
+            z-index: 1000;
+            transition: all 0.3s ease;
+        }
+
+        .navbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 0;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 1.8rem;
+            font-weight: 800;
+            color: white;
+            text-decoration: none;
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+            .logo-icon::before {
+                content: '';
+                position: absolute;
+                width: 20px;
+                height: 20px;
+                background: white;
+                border-radius: 4px;
+            }
+
+            .logo-icon::after {
+                content: '';
+                position: absolute;
+                width: 8px;
+                height: 8px;
+                background: var(--accent);
+                border-radius: 50%;
+                bottom: 6px;
+                right: 6px;
+            }
+
+        .nav-links {
+            display: flex;
+            gap: 30px;
+        }
+
+            .nav-links a {
+                color: var(--text);
+                text-decoration: none;
+                font-weight: 500;
+                position: relative;
+                transition: color 0.3s;
+            }
+
+                .nav-links a:hover {
+                    color: white;
+                }
+
+                .nav-links a::after {
+                    content: '';
+                    position: absolute;
+                    bottom: -5px;
+                    left: 0;
+                    width: 0;
+                    height: 2px;
+                    background: linear-gradient(90deg, var(--primary), var(--accent));
+                    transition: width 0.3s;
+                }
+
+                .nav-links a:hover::after {
+                    width: 100%;
+                }
+
+        .nav-actions {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .env-switch {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: var(--text);
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-size: 0.88rem;
+        }
+
+        .env-switch option {
+            color: #111827;
+        }
+
+        .cta-button {
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 4px 15px rgba(var(--primary-rgb, 99, 102, 241), 0.3);
+        }
+
+            .cta-button:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 6px 20px rgba(var(--primary-rgb, 99, 102, 241), 0.4);
+            }
+
+        /* Theme Switcher */
+        .theme-switcher {
+            position: relative;
+        }
+
+        .theme-toggle {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            color: var(--text);
+        }
+
+            .theme-toggle:hover {
+                background: rgba(255, 255, 255, 0.15);
+                transform: translateY(-2px);
+            }
+
+        .theme-options {
+            position: absolute;
+            top: 50px;
+            right: 0;
+            background: rgba(30, 41, 59, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            padding: 15px;
+            width: 180px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(-10px);
+            transition: all 0.3s ease;
+            z-index: 1001;
+        }
+
+            .theme-options.active {
+                opacity: 1;
+                visibility: visible;
+                transform: translateY(0);
+            }
+
+        .theme-option {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.3s;
+            margin-bottom: 5px;
+        }
+
+            .theme-option:hover {
+                background: rgba(255, 255, 255, 0.1);
+            }
+
+            .theme-option.active {
+                background: rgba(var(--primary-rgb, 99, 102, 241), 0.2);
+            }
+
+        .theme-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .theme-default .theme-color {
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+        }
+
+        .theme-ocean .theme-color {
+            background: linear-gradient(135deg, #0ea5e9, #0891b2);
+        }
+
+        .theme-forest .theme-color {
+            background: linear-gradient(135deg, #059669, #059669);
+        }
+
+        .theme-sunset .theme-color {
+            background: linear-gradient(135deg, #ea580c, #dc2626);
+        }
+
+        .theme-purple .theme-color {
+            background: linear-gradient(135deg, #9333ea, #c026d3);
+        }
+
+        /* Hero Section */
+        .hero {
+            padding: 120px 0 120px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero-content {
+            max-width: 800px;
+            margin: 0 auto;
+            text-align: center;
+            position: relative;
+            z-index: 1;
+            transition: transform 0.25s ease;
+        }
+
+        .hero h1 {
+            font-size: 3.5rem;
+            font-weight: 800;
+            margin-bottom: 24px;
+            line-height: 1.1;
+            background: linear-gradient(90deg, #fff, var(--primary-light));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .hero p {
+            font-size: 1.25rem;
+            color: var(--text-muted);
+            margin-bottom: 40px;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .hero-buttons {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .landing-control-bar {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        .intro-panel {
+            margin-top: 18px;
+            padding: 14px 16px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.07);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            text-align: left;
+        }
+
+        .intro-panel h4 {
+            font-size: 1rem;
+            margin: 0 0 8px 0;
+            color: #fff;
+        }
+
+        .intro-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-top: 10px;
+        }
+
+        .intro-status {
+            font-size: 0.88rem;
+            color: var(--text-muted);
+            margin-left: 4px;
+        }
+
+        .hero-quick-links {
+            margin-top: 22px;
+            padding: 16px 18px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            text-align: left;
+        }
+
+        .hero-quick-links h4 {
+            font-size: 1rem;
+            margin-bottom: 10px;
+            color: #fff;
+        }
+
+        .hero-quick-links ul {
+            margin: 0;
+            padding-left: 18px;
+        }
+
+        .hero-quick-links li {
+            margin-bottom: 6px;
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+
+        .hero-quick-links a {
+            color: var(--primary-light);
+            text-decoration: none;
+        }
+
+        .hero-quick-links a:hover {
+            text-decoration: underline;
+        }
+
+        .route-health {
+            margin-left: 6px;
+            font-size: 0.78rem;
+            padding: 1px 7px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            color: #e2e8f0;
+            background: rgba(30, 41, 59, 0.55);
+            white-space: nowrap;
+        }
+
+        .route-health.ok {
+            border-color: rgba(74, 222, 128, 0.45);
+            color: #86efac;
+            background: rgba(6, 78, 59, 0.35);
+        }
+
+        .route-health.bad {
+            border-color: rgba(248, 113, 113, 0.45);
+            color: #fca5a5;
+            background: rgba(127, 29, 29, 0.35);
+        }
+
+        .launch-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+            gap: 14px;
+            margin-top: 24px;
+        }
+
+        .launch-item {
+            display: block;
+            text-decoration: none;
+            color: var(--text);
+            background: rgba(15, 23, 42, 0.55);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 12px;
+            padding: 14px 16px;
+            transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .launch-item:hover {
+            transform: translateY(-3px);
+            border-color: var(--primary-light);
+            box-shadow: 0 12px 30px rgba(99, 102, 241, 0.2);
+        }
+
+        .launch-item h4 {
+            font-size: 1rem;
+            margin-bottom: 6px;
+        }
+
+        .launch-item p {
+            margin: 0;
+            color: var(--text-muted);
+            font-size: 0.88rem;
+        }
+
+        .parallax-layer {
+            will-change: transform;
+        }
+
+        .smooth-reveal {
+            opacity: 0.35;
+            transform: translateY(20px) scale(0.985);
+            transition: opacity 0.7s ease, transform 0.7s ease;
+        }
+
+        .smooth-reveal.in-view {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            backdrop-filter: blur(10px);
+        }
+
+            .btn-secondary:hover {
+                background: rgba(255, 255, 255, 0.15);
+                transform: translateY(-2px);
+            }
+
+        /* Section Common Styles */
+        .section {
+            padding: 100px 0;
+            position: relative;
+        }
+
+        .section-title {
+            text-align: center;
+            margin-bottom: 60px;
+        }
+
+            .section-title h2 {
+                font-size: 2.5rem;
+                font-weight: 700;
+                margin-bottom: 16px;
+                position: relative;
+                display: inline-block;
+            }
+
+                .section-title h2::after {
+                    content: '';
+                    position: absolute;
+                    bottom: -10px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    width: 80px;
+                    height: 4px;
+                    background: linear-gradient(90deg, var(--primary), var(--accent));
+                    border-radius: 2px;
+                }
+
+            .section-title p {
+                max-width: 600px;
+                margin: 0 auto;
+                color: var(--text-muted);
+                font-size: 1.1rem;
+            }
+
+        /* Features Section */
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+        }
+
+        .feature-card {
+            background: rgba(30, 41, 59, 0.5);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            padding: 30px;
+            transition: all 0.3s;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            position: relative;
+            overflow: hidden;
+        }
+
+            .feature-card::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: linear-gradient(135deg, rgba(var(--primary-rgb, 99, 102, 241), 0.1), rgba(var(--secondary-rgb, 139, 92, 246), 0.05));
+                opacity: 0;
+                transition: opacity 0.3s;
+            }
+
+            .feature-card:hover {
+                transform: translateY(-10px);
+                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+                border-color: rgba(var(--primary-rgb, 99, 102, 241), 0.3);
+            }
+
+                .feature-card:hover::before {
+                    opacity: 1;
+                }
+
+        .feature-icon {
+            width: 70px;
+            height: 70px;
+            background: rgba(var(--primary-rgb, 99, 102, 241), 0.1);
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 20px;
+            position: relative;
+        }
+
+            .feature-icon i {
+                font-size: 1.8rem;
+                background: linear-gradient(135deg, var(--primary), var(--secondary));
+                -webkit-background-clip: text;
+                background-clip: text;
+                color: transparent;
+            }
+
+        .feature-card h3 {
+            font-size: 1.5rem;
+            margin-bottom: 15px;
+            color: white;
+        }
+
+        .feature-card p {
+            color: var(--text-muted);
+            margin-bottom: 20px;
+        }
+
+        .feature-link {
+            color: var(--primary-light);
+            text-decoration: none;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: gap 0.3s;
+        }
+
+            .feature-link:hover {
+                gap: 12px;
+            }
+
+        /* Modules Section */
+        .modules {
+            background: rgba(15, 23, 42, 0.7);
+        }
+
+        .modules-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 30px;
+        }
+
+        .module-card {
+            background: rgba(30, 41, 59, 0.5);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            overflow: hidden;
+            transition: all 0.3s;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+            .module-card:hover {
+                transform: translateY(-10px);
+                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+                border-color: rgba(var(--primary-rgb, 99, 102, 241), 0.3);
+            }
+
+        .module-header {
+            padding: 25px;
+            background: rgba(var(--primary-rgb, 99, 102, 241), 0.1);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+            .module-header h3 {
+                font-size: 1.5rem;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                color: white;
+            }
+
+            .module-header i {
+                background: linear-gradient(135deg, var(--primary), var(--secondary));
+                -webkit-background-clip: text;
+                background-clip: text;
+                color: transparent;
+            }
+
+        .module-body {
+            padding: 25px;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        .module-features {
+            list-style: none;
+            margin-bottom: 25px;
+            flex-grow: 1;
+        }
+
+            .module-features li {
+                margin-bottom: 10px;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                color: var(--text-muted);
+            }
+
+                .module-features li i {
+                    color: var(--success);
+                }
+
+        /* Stats Section */
+        .stats {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            text-align: center;
+            padding: 80px 0;
+            position: relative;
+            overflow: hidden;
+        }
+
+            .stats::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 100" fill="%23ffffff" opacity="0.1"><polygon points="1000,100 1000,0 0,100"></polygon></svg>');
+                background-size: cover;
+            }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 30px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .stat-item h3 {
+            font-size: 3rem;
+            margin-bottom: 10px;
+            font-weight: 800;
+        }
+
+        .stat-item p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        /* CTA Section */
+        .cta-section {
+            text-align: center;
+            padding: 100px 0;
+            background: rgba(15, 23, 42, 0.7);
+            position: relative;
+        }
+
+            .cta-section h2 {
+                font-size: 2.5rem;
+                margin-bottom: 20px;
+                font-weight: 700;
+            }
+
+            .cta-section p {
+                max-width: 600px;
+                margin: 0 auto 30px;
+                color: var(--text-muted);
+                font-size: 1.1rem;
+            }
+
+        /* Footer */
+        footer {
+            background: rgba(15, 23, 42, 0.9);
+            padding: 60px 0 30px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .footer-content {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 40px;
+            margin-bottom: 40px;
+        }
+
+        .footer-column h3 {
+            font-size: 1.3rem;
+            margin-bottom: 20px;
+            position: relative;
+            display: inline-block;
+            color: white;
+        }
+
+            .footer-column h3::after {
+                content: '';
+                position: absolute;
+                bottom: -8px;
+                left: 0;
+                width: 40px;
+                height: 3px;
+                background: var(--primary);
+            }
+
+        .footer-links {
+            list-style: none;
+        }
+
+            .footer-links li {
+                margin-bottom: 12px;
+            }
+
+            .footer-links a {
+                color: var(--text-muted);
+                text-decoration: none;
+                transition: color 0.3s;
+            }
+
+                .footer-links a:hover {
+                    color: var(--primary-light);
+                }
+
+        .social-links {
+            display: flex;
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+            .social-links a {
+                width: 40px;
+                height: 40px;
+                background: rgba(255, 255, 255, 0.1);
+                border-radius: 8px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.3s;
+            }
+
+                .social-links a:hover {
+                    background: var(--primary);
+                    transform: translateY(-3px);
+                }
+
+        .copyright {
+            text-align: center;
+            padding-top: 30px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        /* Responsive */
+        @@media (max-width: 768px) {
+            .nav-links
+
+        {
+            display: none;
+        }
+
+        .hero h1 {
+            font-size: 2.5rem;
+        }
+
+        .hero-buttons {
+            flex-direction: column;
+            align-items: center;
+        }
+
+            .hero-buttons a {
+                width: 100%;
+                max-width: 300px;
+                text-align: center;
+            }
+
+        .section-title h2 {
+            font-size: 2rem;
+        }
+
+        .theme-options {
+            right: -50px;
+        }
+
+        }
+
+        /* Animation Classes */
+        .fade-in {
+            opacity: 0;
+            transform: translateY(30px);
+            transition: all 0.6s ease;
+        }
+
+            .fade-in.visible {
+                opacity: 1;
+                transform: translateY(0);
+            }
+
+        /* Thriller cinematic menu entry */
+        .menu-entry {
+            opacity: 0;
+            transform: translateY(24px) scale(0.98);
+            filter: blur(8px);
+            transition: opacity 0.7s ease, transform 0.7s ease, filter 0.7s ease, box-shadow 0.35s ease;
+            will-change: transform, opacity, filter;
+        }
+
+        .menu-entry.visible {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+            filter: blur(0);
+        }
+
+        .menu-entry.fx-a {
+            transition-timing-function: cubic-bezier(.16,.84,.44,1);
+        }
+
+        .menu-entry.fx-b {
+            transition-timing-function: cubic-bezier(.2,.95,.38,1.02);
+        }
+
+        .menu-entry.fx-c {
+            transition-timing-function: cubic-bezier(.12,.88,.34,1);
+        }
+
+        .module-card.menu-entry.visible:hover,
+        .feature-card.menu-entry.visible:hover {
+            box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 16px 40px rgba(124, 58, 237, 0.25);
+        }
+
+        .sound-hint {
+            margin-top: 10px;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            opacity: 0.8;
+        }
+
+        @@media (prefers-reduced-motion: reduce) {
+            .menu-entry,
+            .menu-entry.visible,
+            .fade-in,
+            .fade-in.visible {
+                transition: none !important;
+                transform: none !important;
+                opacity: 1 !important;
+                filter: none !important;
+            }
+        }
+    </style>
+</head>
+<body class="theme-default">
+    <!-- Animated Background -->
+    <div class="animated-bg parallax-layer" data-depth="0.015"></div>
+
+    <!-- Floating Particles -->
+    <div class="particles" id="particles"></div>
+
+    <!-- Header intentionally removed for smoother landing flow -->
+
+    <!-- Hero Section -->
+  @*   <div class="container">
+        <main role="main" class="pb-3">
+            <!-- Demo content to show theme changes -->
+            <div class="row justify-content-center">
+                <div class="col-md-8">
+               
+                    <div class="card digital-border p-4 mb-4">
+                        <h2 class="text-center mb-4">Image to Text Converter</h2>
+                        <p class="text-center">Experience the power of STAR_MULTIMEDIA technology with our advanced OCR solution. Convert any image to editable text with precision and speed.</p>
+
+                        <div class="text-center mt-4">
+                            <button class="btn" style="background: linear-gradient(90deg, var(--primary), var(--accent)); color: white; border: none; padding: 10px 20px; border-radius: 25px;">
+                                <i class="fas fa-upload me-2"></i>Upload Image
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="row text-center">
+                        <div class="col-md-4 mb-3">
+                            <div class="p-3 digital-border">
+                                <i class="fas fa-bolt fa-2x mb-2" style="color: var(--primary);"></i>
+                                <h5>Fast Processing</h5>
+                                <p class="small">Convert images to text in seconds</p>
+                            </div>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <div class="p-3 digital-border">
+                                <i class="fas fa-shield-alt fa-2x mb-2" style="color: var(--primary);"></i>
+                                <h5>Secure</h5>
+                                <p class="small">Your data remains private</p>
+                            </div>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <div class="p-3 digital-border">
+                                <i class="fas fa-language fa-2x mb-2" style="color: var(--primary);"></i>
+                                <h5>Multi-language</h5>
+                                <p class="small">Supports 50+ languages</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div> *@
+
+    <section class="hero smooth-reveal">
+        <div class="container">
+            <div class="hero-content parallax-layer" data-depth="0.03">
+                <div class="landing-control-bar fade-in menu-entry fx-a">
+                    <a href="/DetectionView" class="cta-button">
+                        <i class="fas fa-rocket"></i> Launch App
+                    </a>
+                    <a href="#features" class="btn-secondary">
+                        <i class="fas fa-layer-group"></i> Features
+                    </a>
+                    <a href="#modules" class="btn-secondary">
+                        <i class="fas fa-cubes"></i> Modules
+                    </a>
+                    <select id="environmentSelect" class="env-switch" title="Switch environment links">
+                        <option value="local">Local</option>
+                        <option value="staging">Staging</option>
+                        <option value="production">Production</option>
+                    </select>
+                    <div class="theme-switcher">
+                        <div class="theme-toggle" id="themeToggle">
+                            <i class="fas fa-palette"></i>
+                        </div>
+                        <div class="theme-options" id="themeOptions">
+                            <div class="theme-option theme-default active" data-theme="theme-default">
+                                <div class="theme-color"></div>
+                                <span>Default</span>
+                            </div>
+                            <div class="theme-option theme-ocean" data-theme="theme-ocean">
+                                <div class="theme-color"></div>
+                                <span>Ocean</span>
+                            </div>
+                            <div class="theme-option theme-forest" data-theme="theme-forest">
+                                <div class="theme-color"></div>
+                                <span>Forest</span>
+                            </div>
+                            <div class="theme-option theme-sunset" data-theme="theme-sunset">
+                                <div class="theme-color"></div>
+                                <span>Sunset</span>
+                            </div>
+                            <div class="theme-option theme-purple" data-theme="theme-purple">
+                                <div class="theme-color"></div>
+                                <span>Purple</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <h1 class="fade-in">Transform Your Digital Experience</h1>
+                <p class="fade-in">STAR MULTIMEDIA offers cutting-edge solutions for image processing, text extraction, and multimedia management with AI-powered technology.</p>
+                <div class="hero-buttons">
+                    <a href="/DetectionView" class="cta-button fade-in menu-entry fx-a">
+                        <i class="fas fa-camera"></i> Try Image to Text
+                    </a>
+                    <a href="#features" class="btn-secondary fade-in menu-entry fx-b">
+                        <i class="fas fa-info-circle"></i> Learn More
+                    </a>
+                </div>
+                <div class="intro-panel fade-in menu-entry fx-a">
+                    <h4>Immersive intro</h4>
+                    <p class="mb-0">Play a short voice introduction with ambient thriller background before exploring modules.</p>
+                    <div class="intro-actions">
+                        <button id="introPlayBtn" class="cta-button" type="button">
+                            <i class="fas fa-volume-up"></i> Play Intro
+                        </button>
+                        <button id="introStopBtn" class="btn-secondary" type="button">
+                            <i class="fas fa-stop"></i> Stop
+                        </button>
+                        <span class="intro-status" id="introStatus">Idle</span>
+                    </div>
+                </div>
+                <div class="hero-quick-links fade-in menu-entry fx-c">
+                    <h4>Quick access routes</h4>
+                    <ul>
+                        <li><a data-env-link="api:/ImgToText/ImageToTextScreen" data-sync-text="true" href="@apiBase/ImgToText/ImageToTextScreen" target="_blank" rel="noopener noreferrer">@apiBase/ImgToText/ImageToTextScreen</a> - OCR normal image-to-text <span class="route-health" data-health-key="ocr-normal">checking...</span></li>
+                        <li><a data-env-link="api:/Home/ImageToTextBasic" data-sync-text="true" href="@apiBase/Home/ImageToTextBasic" target="_blank" rel="noopener noreferrer">@apiBase/Home/ImageToTextBasic</a> - OCR advanced image-to-text <span class="route-health" data-health-key="ocr-advanced">checking...</span></li>
+                        <li><a data-env-link="ui:/" data-sync-text="true" href="@uiBase/" target="_blank" rel="noopener noreferrer">@uiBase/</a> - UI main menu <span class="route-health" data-health-key="ui-home">checking...</span></li>
+                        <li><a data-env-link="ui:/DetectionView" data-sync-text="true" href="@uiBase/DetectionView" target="_blank" rel="noopener noreferrer">@uiBase/DetectionView</a> - Live tracking & behavior <span class="route-health" data-health-key="ui-detection">checking...</span></li>
+                        <li><a data-env-link="ui:/DetectionView/Index" data-sync-text="true" href="@uiBase/DetectionView/Index" target="_blank" rel="noopener noreferrer">@uiBase/DetectionView/Index</a> - Live page alias <span class="route-health" data-health-key="ui-detection-index">checking...</span></li>
+                        <li><a data-env-link="ui:/DetectionClient/SceneAnalysis" data-sync-text="true" href="@uiBase/DetectionClient/SceneAnalysis" target="_blank" rel="noopener noreferrer">@uiBase/DetectionClient/SceneAnalysis</a> - Human/animal/object scene analysis <span class="route-health" data-health-key="ui-scene">checking...</span></li>
+                        <li><a data-env-link="ui:/Home/Privacy" data-sync-text="true" href="@uiBase/Home/Privacy" target="_blank" rel="noopener noreferrer">@uiBase/Home/Privacy</a> - Privacy <span class="route-health" data-health-key="ui-privacy">checking...</span></li>
+                        <li><a data-env-link="api:/api/detection/health" data-sync-text="true" href="@apiBase/api/detection/health" target="_blank" rel="noopener noreferrer">@apiBase/api/detection/health</a> - API health status <span class="route-health" data-health-key="api-health">checking...</span></li>
+                    </ul>
+                    <div class="sound-hint">Tip: click anywhere once to enable thriller sound FX.</div>
+                </div>
+
+            </div>
+            <div class="launch-grid fade-in menu-entry fx-b">
+                <a class="launch-item" data-env-link="api:/ImgToText/ImageToTextScreen" href="@apiBase/ImgToText/ImageToTextScreen" target="_blank" rel="noopener noreferrer" data-module-sfx="ocr">
+                    <h4><i class="fas fa-file-image"></i> OCR Normal (ImageToTextScreen)</h4>
+                    <p>Classic OCR flow for image upload/capture and text extraction.</p>
+                </a>
+                <a class="launch-item" data-env-link="api:/Home/ImageToTextBasic" href="@apiBase/Home/ImageToTextBasic" target="_blank" rel="noopener noreferrer" data-module-sfx="document">
+                    <h4><i class="fas fa-magic"></i> OCR Advanced (ImageToTextBasic)</h4>
+                    <p>Enhanced OCR flow with advanced preprocessing and improved accuracy.</p>
+                </a>
+                <a class="launch-item" data-env-link="ui:/DetectionView" href="@uiBase/DetectionView" target="_blank" rel="noopener noreferrer" data-module-sfx="scene">
+                    <h4><i class="fas fa-user-check"></i> Live Tracking</h4>
+                    <p>Human tracking, behavior analysis, overlays, and gesture monitoring.</p>
+                </a>
+                <a class="launch-item" data-env-link="ui:/DetectionClient/SceneAnalysis" href="@uiBase/DetectionClient/SceneAnalysis" target="_blank" rel="noopener noreferrer" data-module-sfx="scene">
+                    <h4><i class="fas fa-paw"></i> Scene Analysis</h4>
+                    <p>Human/animal/object detection with scene summaries and frame timing.</p>
+                </a>
+                <a class="launch-item" data-env-link="ui:/DetectionClient/ModelCanvas" href="@uiBase/DetectionClient/ModelCanvas" target="_blank" rel="noopener noreferrer" data-module-sfx="analytics">
+                    <h4><i class="fas fa-draw-polygon"></i> Big Model Canvas</h4>
+                    <p>Large live canvas with shape/color coded detections and skeleton-style rendering.</p>
+                </a>
+                <a class="launch-item" data-env-link="api:/api/system/health" href="@apiBase/api/system/health" target="_blank" rel="noopener noreferrer" data-module-sfx="analytics">
+                    <h4><i class="fas fa-heartbeat"></i> System Health</h4>
+                    <p>Production observability endpoints for memory, logs, and health.</p>
+                </a>
+            </div>
         </div>
-    </div>
-</div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="section smooth-reveal">
+        <div class="container">
+            <div class="section-title">
+                <h2>Why Choose STAR MULTIMEDIA?</h2>
+                <p>Our platform combines advanced technology with user-friendly interfaces to deliver exceptional results.</p>
+            </div>
+
+            <div class="features-grid">
+                <div class="feature-card fade-in menu-entry fx-a">
+                    <div class="feature-icon">
+                        <i class="fas fa-robot"></i>
+                    </div>
+                    <h3>AI-Powered OCR</h3>
+                    <p>Extract text from images with industry-leading accuracy using our advanced Optical Character Recognition technology.</p>
+                    <a href="/DetectionView" class="feature-link">
+                        Learn more <i class="fas fa-arrow-right"></i>
+                    </a>
+                </div>
+
+                <div class="feature-card fade-in menu-entry fx-b">
+                    <div class="feature-icon">
+                        <i class="fas fa-bolt"></i>
+                    </div>
+                    <h3>Lightning Fast Processing</h3>
+                    <p>Process images and extract text in seconds with our optimized algorithms and cloud infrastructure.</p>
+                    <a data-env-link="ui:/DetectionView" href="@uiBase/DetectionView" target="_blank" rel="noopener noreferrer" class="feature-link">
+                        Learn more <i class="fas fa-arrow-right"></i>
+                    </a>
+                </div>
+
+                <div class="feature-card fade-in menu-entry fx-c">
+                    <div class="feature-icon">
+                        <i class="fas fa-shield-alt"></i>
+                    </div>
+                    <h3>Secure & Private</h3>
+                    <p>Your data is protected with enterprise-grade security. We never store or share your processed images.</p>
+                    <a data-env-link="ui:/Home/Privacy" href="@uiBase/Home/Privacy" target="_blank" rel="noopener noreferrer" class="feature-link">
+                        Learn more <i class="fas fa-arrow-right"></i>
+                    </a>
+                </div>
+
+                <div class="feature-card fade-in menu-entry fx-a">
+                    <div class="feature-icon">
+                        <i class="fas fa-language"></i>
+                    </div>
+                    <h3>Multi-Language Support</h3>
+                    <p>Extract text in multiple languages including English, French, German, Spanish, and more.</p>
+                    <a data-env-link="api:/ImgToText/GetAvailableLanguages" href="@apiBase/ImgToText/GetAvailableLanguages" target="_blank" rel="noopener noreferrer" class="feature-link">
+                        Learn more <i class="fas fa-arrow-right"></i>
+                    </a>
+                </div>
+
+                <div class="feature-card fade-in menu-entry fx-b">
+                    <div class="feature-icon">
+                        <i class="fas fa-mobile-alt"></i>
+                    </div>
+                    <h3>Responsive Design</h3>
+                    <p>Access our tools from any device - desktop, tablet, or mobile - with our fully responsive interface.</p>
+                    <a data-env-link="ui:/" href="@uiBase/" target="_blank" rel="noopener noreferrer" class="feature-link">
+                        Learn more <i class="fas fa-arrow-right"></i>
+                    </a>
+                </div>
+
+                <div class="feature-card fade-in menu-entry fx-c">
+                    <div class="feature-icon">
+                        <i class="fas fa-cloud-download-alt"></i>
+                    </div>
+                    <h3>Multiple Export Options</h3>
+                    <p>Save your extracted text in various formats including TXT, DOCX, PDF, and more for maximum flexibility.</p>
+                    <a href="/DetectionView" class="feature-link">
+                        Learn more <i class="fas fa-arrow-right"></i>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Modules Section -->
+    <section id="modules" class="section modules smooth-reveal">
+        <div class="container">
+            <div class="section-title">
+                <h2>Our Powerful Modules</h2>
+                <p>Discover the range of multimedia tools designed to streamline your workflow and enhance productivity.</p>
+            </div>
+
+            <div class="modules-grid">
+                <div class="module-card fade-in menu-entry fx-a" data-module-sfx="ocr">
+                    <div class="module-header">
+                        <h3><i class="fas fa-camera"></i> Image to Text Converter</h3>
+                    </div>
+                    <div class="module-body">
+                        <p>Advanced OCR technology that extracts text from images, documents, and camera captures with high accuracy.</p>
+                        <ul class="module-features">
+                            <li><i class="fas fa-check"></i> Camera & File Upload</li>
+                            <li><i class="fas fa-check"></i> Multi-Language Support</li>
+                            <li><i class="fas fa-check"></i> Batch Processing</li>
+                            <li><i class="fas fa-check"></i> Text Enhancement</li>
+                            <li><i class="fas fa-check"></i> Multiple Export Formats</li>
+                        </ul>
+                        <a href="/DetectionView" class="cta-button">
+                            <i class="fas fa-external-link-alt"></i> Open Module
+                        </a>
+                    </div>
+                </div>
+
+                <div class="module-card fade-in menu-entry fx-b" data-module-sfx="document">
+                    <div class="module-header">
+                        <h3><i class="fas fa-file-image"></i> Document Processing</h3>
+                    </div>
+                    <div class="module-body">
+                        <p>Convert scanned documents, PDFs, and images into editable and searchable text with layout preservation.</p>
+                        <ul class="module-features">
+                            <li><i class="fas fa-check"></i> PDF Text Extraction</li>
+                            <li><i class="fas fa-check"></i> Layout Analysis</li>
+                            <li><i class="fas fa-check"></i> Table Recognition</li>
+                            <li><i class="fas fa-check"></i> Format Preservation</li>
+                            <li><i class="fas fa-check"></i> Batch Document Processing</li>
+                        </ul>
+                        <a href="/DetectionView" class="cta-button">
+                            <i class="fas fa-external-link-alt"></i> Open OCR Docs Flow
+                        </a>
+                    </div>
+                </div>
+
+                <div class="module-card fade-in menu-entry fx-c" data-module-sfx="scene">
+                    <div class="module-header">
+                        <h3><i class="fas fa-video"></i> Video Content Analysis</h3>
+                    </div>
+                    <div class="module-body">
+                        <p>Extract text and metadata from video frames, generate captions, and analyze visual content automatically.</p>
+                        <ul class="module-features">
+                            <li><i class="fas fa-check"></i> Frame-by-Frame Analysis</li>
+                            <li><i class="fas fa-check"></i> Subtitle Generation</li>
+                            <li><i class="fas fa-check"></i> Content Moderation</li>
+                            <li><i class="fas fa-check"></i> Object Recognition</li>
+                            <li><i class="fas fa-check"></i> Scene Detection</li>
+                        </ul>
+                        <a data-env-link="ui:/DetectionView/Index" href="@uiBase/DetectionView/Index" class="cta-button" target="_blank" rel="noopener noreferrer">
+                            <i class="fas fa-external-link-alt"></i> IN LIVE
+                        </a>
+                    </div>
+                </div>
+
+                <div class="module-card fade-in menu-entry fx-a" data-module-sfx="analytics">
+                    <div class="module-header">
+                        <h3><i class="fas fa-chart-bar"></i> Data Visualization</h3>
+                    </div>
+                    <div class="module-body">
+                        <p>Transform extracted data into insightful visualizations, charts, and reports for better decision making.</p>
+                        <ul class="module-features">
+                            <li><i class="fas fa-check"></i> Interactive Charts</li>
+                            <li><i class="fas fa-check"></i> Report Generation</li>
+                            <li><i class="fas fa-check"></i> Data Export</li>
+                            <li><i class="fas fa-check"></i> Custom Dashboards</li>
+                            <li><i class="fas fa-check"></i> Real-time Analytics</li>
+                        </ul>
+                        <a data-env-link="api:/api/system/memory?count=60" href="@apiBase/api/system/memory?count=60" class="cta-button" target="_blank" rel="noopener noreferrer">
+                            <i class="fas fa-external-link-alt"></i> Open Analytics API
+                        </a>
+                    </div>
+                </div>
+
+                <div class="module-card fade-in menu-entry fx-b" data-module-sfx="cloud">
+                    <div class="module-header">
+                        <h3><i class="fas fa-cloud"></i> Cloud Integration</h3>
+                    </div>
+                    <div class="module-body">
+                        <p>Seamlessly connect with cloud storage services and collaborate with team members in real-time.</p>
+                        <ul class="module-features">
+                            <li><i class="fas fa-check"></i> Cloud Storage Sync</li>
+                            <li><i class="fas fa-check"></i> Team Collaboration</li>
+                            <li><i class="fas fa-check"></i> Version Control</li>
+                            <li><i class="fas fa-check"></i> API Access</li>
+                            <li><i class="fas fa-check"></i> Automated Workflows</li>
+                        </ul>
+                        <a data-env-link="api:/api/detection/active-sessions" href="@apiBase/api/detection/active-sessions" class="cta-button" target="_blank" rel="noopener noreferrer">
+                            <i class="fas fa-external-link-alt"></i> Open Session API
+                        </a>
+                    </div>
+                </div>
+
+                <div class="module-card fade-in menu-entry fx-c" data-module-sfx="advanced">
+                    <div class="module-header">
+                        <h3><i class="fas fa-cogs"></i> Advanced Processing</h3>
+                    </div>
+                    <div class="module-body">
+                        <p>Leverage advanced image processing, enhancement, and analysis tools for specialized use cases.</p>
+                        <ul class="module-features">
+                            <li><i class="fas fa-check"></i> Image Enhancement</li>
+                            <li><i class="fas fa-check"></i> Noise Reduction</li>
+                            <li><i class="fas fa-check"></i> Color Correction</li>
+                            <li><i class="fas fa-check"></i> Pattern Recognition</li>
+                            <li><i class="fas fa-check"></i> Custom Algorithms</li>
+                        </ul>
+                        <a href="/DetectionView" class="cta-button">
+                            <i class="fas fa-external-link-alt"></i> Open Processing Lab
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Stats Section -->
+    <section class="stats smooth-reveal">
+        <div class="container">
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <h3>99%</h3>
+                    <p>Accuracy Rate</p>
+                </div>
+                <div class="stat-item">
+                    <h3>50K+</h3>
+                    <p>Images Processed</p>
+                </div>
+                <div class="stat-item">
+                    <h3>15+</h3>
+                    <p>Supported Languages</p>
+                </div>
+                <div class="stat-item">
+                    <h3>24/7</h3>
+                    <p>Uptime</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="cta-section smooth-reveal">
+        <div class="container">
+            <h2>Ready to Transform Your Workflow?</h2>
+            <p>Join thousands of users who are already saving time and increasing productivity with STAR MULTIMEDIA.</p>
+            <a href="/DetectionView" class="cta-button">
+                <i class="fas fa-rocket"></i> Get Started Now
+            </a>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="smooth-reveal">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-column">
+                    <h3>STAR MULTIMEDIA</h3>
+                    <p>Advanced digital solutions for image processing, text extraction, and multimedia management.</p>
+                    <div class="social-links">
+                        <a href="https://x.com" target="_blank" rel="noopener noreferrer"><i class="fab fa-twitter"></i></a>
+                        <a href="https://facebook.com" target="_blank" rel="noopener noreferrer"><i class="fab fa-facebook-f"></i></a>
+                        <a href="https://linkedin.com" target="_blank" rel="noopener noreferrer"><i class="fab fa-linkedin-in"></i></a>
+                        <a href="https://github.com/tdmohapatra/MULTIMEDIA_DETECTION_CODE_GIT" target="_blank" rel="noopener noreferrer"><i class="fab fa-github"></i></a>
+                    </div>
+                </div>
+
+                <div class="footer-column">
+                    <h3>Modules</h3>
+                    <ul class="footer-links">
+                        <li><a href="/DetectionView">Image to Text Converter</a></li>
+                        <li><a href="/DetectionView">Document Processing</a></li>
+                        <li><a data-env-link="ui:/DetectionView/Index" href="@uiBase/DetectionView/Index" target="_blank" rel="noopener noreferrer">Video Content Analysis</a></li>
+                        <li><a data-env-link="api:/api/system/memory?count=60" href="@apiBase/api/system/memory?count=60" target="_blank" rel="noopener noreferrer">Data Visualization</a></li>
+                        <li><a data-env-link="api:/api/detection/active-sessions" href="@apiBase/api/detection/active-sessions" target="_blank" rel="noopener noreferrer">Cloud Integration</a></li>
+                    </ul>
+                </div>
+
+                <div class="footer-column">
+                    <h3>Resources</h3>
+                    <ul class="footer-links">
+                        <li><a data-env-link="api:/ready" href="@apiBase/ready" target="_blank" rel="noopener noreferrer">Documentation</a></li>
+                        <li><a data-env-link="ui:/" href="@uiBase/" target="_blank" rel="noopener noreferrer">Tutorials</a></li>
+                        <li><a data-env-link="api:/api/detection/health" href="@apiBase/api/detection/health" target="_blank" rel="noopener noreferrer">API Reference</a></li>
+                        <li><a data-env-link="api:/api/system/logs?count=50" href="@apiBase/api/system/logs?count=50" target="_blank" rel="noopener noreferrer">Logs</a></li>
+                        <li><a data-env-link="api:/api/system/health" href="@apiBase/api/system/health" target="_blank" rel="noopener noreferrer">Support Health</a></li>
+                    </ul>
+                </div>
+
+                <div class="footer-column">
+                    <h3>Company</h3>
+                    <ul class="footer-links">
+                        <li><a href="#features">About Us</a></li>
+                        <li><a href="#modules">Careers</a></li>
+                        <li><a data-env-link="ui:/Home/Privacy" href="@uiBase/Home/Privacy" target="_blank" rel="noopener noreferrer">Privacy Policy</a></li>
+                        <li><a data-env-link="ui:/Home/Privacy" href="@uiBase/Home/Privacy" target="_blank" rel="noopener noreferrer">Terms of Service</a></li>
+                        <li><a href="#modules">Contact</a></li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="copyright">
+                <p>&copy; 2027 STAR MULTIMEDIA. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Create floating particles
+        function createParticles() {
+            const particlesContainer = document.getElementById('particles');
+            const particleCount = 30;
+
+            for (let i = 0; i < particleCount; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'particle';
+
+                // Random properties
+                const size = Math.random() * 6 + 2;
+                const posX = Math.random() * 100;
+                const posY = Math.random() * 100;
+                const delay = Math.random() * 20;
+                const duration = 15 + Math.random() * 10;
+
+                particle.style.width = `${size}px`;
+                particle.style.height = `${size}px`;
+                particle.style.left = `${posX}%`;
+                particle.style.top = `${posY}%`;
+                particle.style.animationDelay = `${delay}s`;
+                particle.style.animationDuration = `${duration}s`;
+
+                particlesContainer.appendChild(particle);
+            }
+        }
+
+        // Scroll animations
+        function handleScrollAnimations() {
+            const elements = document.querySelectorAll('.fade-in');
+
+            elements.forEach(element => {
+                const elementTop = element.getBoundingClientRect().top;
+                const elementVisible = 150;
+
+                if (elementTop < window.innerHeight - elementVisible) {
+                    element.classList.add('visible');
+                }
+            });
+        }
+
+        // Smooth scrolling for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+
+                const targetId = this.getAttribute('href');
+                if(targetId === '#') return;
+
+                const targetElement = document.querySelector(targetId);
+                if(targetElement) {
+                    window.scrollTo({
+                        top: targetElement.offsetTop - 20,
+                        behavior: 'smooth'
+                    });
+                }
+            });
+        });
+
+        // Scroll-driven reveal
+        window.addEventListener('scroll', function() {
+            handleScrollAnimations();
+        });
+
+        // Theme Switcher Functionality
+        const themeToggle = document.getElementById('themeToggle');
+        const themeOptions = document.getElementById('themeOptions');
+        const themeOptionsItems = document.querySelectorAll('.theme-option');
+
+        // Toggle theme options visibility
+        themeToggle.addEventListener('click', function(e) {
+            e.stopPropagation();
+            themeOptions.classList.toggle('active');
+        });
+
+        // Close theme options when clicking outside
+        document.addEventListener('click', function() {
+            themeOptions.classList.remove('active');
+        });
+
+        // Prevent theme options from closing when clicking inside
+        themeOptions.addEventListener('click', function(e) {
+            e.stopPropagation();
+        });
+
+        // Change theme
+        themeOptionsItems.forEach(item => {
+            item.addEventListener('click', function() {
+                const theme = this.getAttribute('data-theme');
+
+                // Update body class
+                document.body.className = theme;
+
+                // Update active state
+                themeOptionsItems.forEach(opt => opt.classList.remove('active'));
+                this.classList.add('active');
+
+                // Close theme options
+                themeOptions.classList.remove('active');
+
+                // Save theme preference to localStorage
+                localStorage.setItem('star-multimedia-theme', theme);
+            });
+        });
+
+        // Load saved theme from localStorage
+        document.addEventListener('DOMContentLoaded', function() {
+            const savedTheme = localStorage.getItem('star-multimedia-theme');
+            if (savedTheme) {
+                document.body.className = savedTheme;
+                themeOptionsItems.forEach(opt => {
+                    opt.classList.remove('active');
+                    if (opt.getAttribute('data-theme') === savedTheme) {
+                        opt.classList.add('active');
+                    }
+                });
+            }
+        });
+
+        // Environment link switcher (local / staging / production)
+        const envProfiles = {
+            local: {
+                uiBase: '@uiBase',
+                apiBase: '@apiBase'
+            },
+            staging: {
+                uiBase: 'https://staging-ui.star-multimedia.local',
+                apiBase: 'https://staging-api.star-multimedia.local'
+            },
+            production: {
+                uiBase: 'https://ui.star-multimedia.com',
+                apiBase: 'https://api.star-multimedia.com'
+            }
+        };
+        let routeHealthTimer = null;
+        const routeRegistry = [
+            { key: 'ocr-normal', checkUrl: (env) => `${env.apiBase}/ImgToText/ImageToTextScreen` },
+            { key: 'ocr-advanced', checkUrl: (env) => `${env.apiBase}/Home/ImageToTextBasic` },
+            { key: 'ui-home', checkUrl: (env) => `${env.uiBase}/` },
+            { key: 'ui-detection', checkUrl: (env) => `${env.uiBase}/DetectionView` },
+            { key: 'ui-detection-index', checkUrl: (env) => `${env.uiBase}/DetectionView/Index` },
+            { key: 'ui-scene', checkUrl: (env) => `${env.uiBase}/DetectionClient/SceneAnalysis` },
+            { key: 'ui-privacy', checkUrl: (env) => `${env.uiBase}/Home/Privacy` },
+            { key: 'api-health', checkUrl: (env) => `${env.apiBase}/api/detection/health` }
+        ];
+
+        function setRouteHealthBadge(key, state, text) {
+            const el = document.querySelector(`.route-health[data-health-key="${key}"]`);
+            if (!el) return;
+            el.classList.remove('ok', 'bad');
+            if (state === 'ok') el.classList.add('ok');
+            if (state === 'bad') el.classList.add('bad');
+            el.textContent = text;
+        }
+
+        async function refreshRouteHealth(env) {
+            const checks = routeRegistry.map(async (route) => {
+                try {
+                    const response = await fetch(route.checkUrl(env), { method: 'GET' });
+                    setRouteHealthBadge(route.key, response.ok ? 'ok' : 'bad', response.ok ? 'up' : `err ${response.status}`);
+                } catch {
+                    setRouteHealthBadge(route.key, 'bad', 'offline');
+                }
+            });
+            await Promise.allSettled(checks);
+        }
+
+        function applyEnvironment(envKey) {
+            const env = envProfiles[envKey] || envProfiles.local;
+            localStorage.setItem('star-multimedia-env', envKey);
+            document.querySelectorAll('a[href]').forEach(anchor => {
+                if (!anchor.dataset.originalHref) {
+                    anchor.dataset.originalHref = anchor.getAttribute('href');
+                }
+                const originalHref = anchor.dataset.originalHref;
+                if (!originalHref) return;
+
+                let nextHref = originalHref
+                    .replace(/http:\/\/localhost:5080/gi, env.uiBase)
+                    .replace(/http:\/\/localhost:5078/gi, env.apiBase);
+
+                const envLink = anchor.dataset.envLink;
+                if (envLink && envLink.includes(':')) {
+                    const splitIdx = envLink.indexOf(':');
+                    const baseKey = envLink.slice(0, splitIdx);
+                    const route = envLink.slice(splitIdx + 1);
+                    const base = baseKey === 'api' ? env.apiBase : env.uiBase;
+                    nextHref = `${base}${route}`;
+                }
+
+                anchor.setAttribute('href', nextHref);
+
+                if (anchor.dataset.syncText === 'true') {
+                    anchor.textContent = nextHref;
+                }
+            });
+            refreshRouteHealth(env);
+            if (routeHealthTimer) clearInterval(routeHealthTimer);
+            routeHealthTimer = setInterval(() => refreshRouteHealth(env), 30000);
+        }
+
+        function initParallax() {
+            const layers = document.querySelectorAll('.parallax-layer');
+            if (!layers.length) return;
+            window.addEventListener('mousemove', (e) => {
+                const rx = (e.clientX / window.innerWidth - 0.5);
+                const ry = (e.clientY / window.innerHeight - 0.5);
+                layers.forEach(layer => {
+                    const depth = Number(layer.dataset.depth || 0.02);
+                    layer.style.transform = `translate3d(${(-rx * depth * 40).toFixed(2)}px, ${(-ry * depth * 40).toFixed(2)}px, 0)`;
+                });
+            });
+        }
+
+        function initPageTransitions() {
+            const links = document.querySelectorAll('a[href]');
+            links.forEach(link => {
+                link.addEventListener('click', (e) => {
+                    const href = link.getAttribute('href') || '';
+                    if (!href || href.startsWith('#') || href.startsWith('javascript:')) return;
+                    if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+
+                    const targetBlank = link.getAttribute('target') === '_blank';
+                    e.preventDefault();
+                    document.body.classList.add('page-transitioning');
+
+                    setTimeout(() => {
+                        if (targetBlank) {
+                            window.open(href, '_blank', 'noopener');
+                            document.body.classList.remove('page-transitioning');
+                        } else {
+                            window.location.href = href;
+                        }
+                    }, 140);
+                });
+            });
+        }
+
+        // Thriller sound FX (WebAudio, no external assets)
+        let audioCtx = null;
+        let soundEnabled = false;
+        let lastSfxAt = 0;
+        let ambienceNodes = null;
+
+        const introText = "Welcome to STAR Multimedia. Explore powerful modules for image to text, real time tracking and behavior analytics, and scene intelligence with human, animal, and object detection. Use the quick access links to launch each experience instantly.";
+
+        function ensureAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            soundEnabled = true;
+        }
+
+        function playThrillSfx(kind = 'hover', profile = 'default') {
+            if (!soundEnabled || !audioCtx) return;
+            const now = performance.now();
+            if (now - lastSfxAt < 90) return;
+            lastSfxAt = now;
+
+            const t0 = audioCtx.currentTime;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            const filter = audioCtx.createBiquadFilter();
+
+            const soundProfiles = {
+                default: { base: 260, click: 180, q: 7, typeHover: 'triangle', typeClick: 'sawtooth', band: 520 },
+                ocr: { base: 320, click: 210, q: 8, typeHover: 'triangle', typeClick: 'triangle', band: 650 },
+                scene: { base: 220, click: 150, q: 6, typeHover: 'sawtooth', typeClick: 'sawtooth', band: 460 },
+                analytics: { base: 420, click: 300, q: 9, typeHover: 'square', typeClick: 'triangle', band: 900 },
+                cloud: { base: 360, click: 260, q: 5, typeHover: 'sine', typeClick: 'triangle', band: 740 },
+                document: { base: 280, click: 190, q: 7, typeHover: 'triangle', typeClick: 'square', band: 600 },
+                advanced: { base: 250, click: 170, q: 8, typeHover: 'sawtooth', typeClick: 'triangle', band: 560 }
+            };
+            const p = soundProfiles[profile] || soundProfiles.default;
+
+            filter.type = 'bandpass';
+            filter.frequency.setValueAtTime(kind === 'click' ? p.band + 180 : p.band, t0);
+            filter.Q.setValueAtTime(p.q, t0);
+
+            osc.type = kind === 'click' ? p.typeClick : p.typeHover;
+            osc.frequency.setValueAtTime(kind === 'click' ? p.click : p.base, t0);
+            osc.frequency.exponentialRampToValueAtTime(kind === 'click' ? p.click * 0.45 : p.base * 0.46, t0 + (kind === 'click' ? 0.15 : 0.1));
+
+            gain.gain.setValueAtTime(0.0001, t0);
+            gain.gain.exponentialRampToValueAtTime(kind === 'click' ? 0.035 : 0.02, t0 + 0.015);
+            gain.gain.exponentialRampToValueAtTime(0.0001, t0 + (kind === 'click' ? 0.18 : 0.12));
+
+            osc.connect(filter);
+            filter.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            osc.start(t0);
+            osc.stop(t0 + (kind === 'click' ? 0.2 : 0.14));
+        }
+
+        function startAmbience() {
+            ensureAudio();
+            if (!audioCtx || ambienceNodes) return;
+
+            const t0 = audioCtx.currentTime;
+            const drone = audioCtx.createOscillator();
+            const pulse = audioCtx.createOscillator();
+            const lfo = audioCtx.createOscillator();
+            const lfoGain = audioCtx.createGain();
+            const master = audioCtx.createGain();
+            const filter = audioCtx.createBiquadFilter();
+
+            drone.type = 'sawtooth';
+            drone.frequency.setValueAtTime(56, t0);
+            pulse.type = 'triangle';
+            pulse.frequency.setValueAtTime(112, t0);
+
+            lfo.type = 'sine';
+            lfo.frequency.setValueAtTime(0.2, t0);
+            lfoGain.gain.setValueAtTime(25, t0);
+
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(620, t0);
+            filter.Q.setValueAtTime(2.5, t0);
+
+            master.gain.setValueAtTime(0.0001, t0);
+            master.gain.exponentialRampToValueAtTime(0.03, t0 + 0.35);
+
+            lfo.connect(lfoGain);
+            lfoGain.connect(filter.frequency);
+            drone.connect(filter);
+            pulse.connect(filter);
+            filter.connect(master);
+            master.connect(audioCtx.destination);
+
+            drone.start(t0);
+            pulse.start(t0);
+            lfo.start(t0);
+
+            ambienceNodes = { drone, pulse, lfo, master };
+        }
+
+        function stopAmbience() {
+            if (!audioCtx || !ambienceNodes) return;
+            const t0 = audioCtx.currentTime;
+            ambienceNodes.master.gain.cancelScheduledValues(t0);
+            ambienceNodes.master.gain.setValueAtTime(ambienceNodes.master.gain.value || 0.02, t0);
+            ambienceNodes.master.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.2);
+            setTimeout(() => {
+                try {
+                    ambienceNodes.drone.stop();
+                    ambienceNodes.pulse.stop();
+                    ambienceNodes.lfo.stop();
+                } catch {}
+                ambienceNodes = null;
+            }, 240);
+        }
+
+        function playIntroNarration() {
+            const status = document.getElementById('introStatus');
+            if (!('speechSynthesis' in window)) {
+                status.textContent = 'Speech not supported in this browser';
+                return;
+            }
+            ensureAudio();
+            startAmbience();
+            window.speechSynthesis.cancel();
+
+            const utter = new SpeechSynthesisUtterance(introText);
+            utter.rate = 0.94;
+            utter.pitch = 0.88;
+            utter.volume = 0.95;
+            utter.onstart = () => { status.textContent = 'Intro playing...'; };
+            utter.onend = () => {
+                status.textContent = 'Intro complete';
+                stopAmbience();
+            };
+            utter.onerror = () => {
+                status.textContent = 'Voice error';
+                stopAmbience();
+            };
+            window.speechSynthesis.speak(utter);
+        }
+
+        function stopIntroNarration() {
+            const status = document.getElementById('introStatus');
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+            }
+            stopAmbience();
+            status.textContent = 'Stopped';
+        }
+
+        function initMenuEntryAnimations() {
+            const items = document.querySelectorAll('.menu-entry');
+            items.forEach((el, i) => {
+                el.style.transitionDelay = `${Math.min(0.06 * i, 0.8)}s`;
+            });
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('visible');
+                        observer.unobserve(entry.target);
+                    }
+                });
+            }, { threshold: 0.15 });
+
+            items.forEach(el => observer.observe(el));
+        }
+
+        function initSectionReveal() {
+            const sections = document.querySelectorAll('.smooth-reveal');
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('in-view');
+                    }
+                });
+            }, { threshold: 0.12 });
+            sections.forEach(section => observer.observe(section));
+        }
+
+        function initMenuSoundFx() {
+            const interactive = document.querySelectorAll('.cta-button, .btn-secondary, .feature-link, .module-card, .hero-quick-links a, .footer-links a');
+            interactive.forEach(el => {
+                const profile = el.dataset.moduleSfx || el.closest('[data-module-sfx]')?.dataset.moduleSfx || 'default';
+                el.addEventListener('mouseenter', () => playThrillSfx('hover', profile));
+                el.addEventListener('click', () => playThrillSfx('click', profile));
+            });
+
+            // Browser gesture unlock
+            window.addEventListener('pointerdown', ensureAudio, { once: true });
+            window.addEventListener('keydown', ensureAudio, { once: true });
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            createParticles();
+            handleScrollAnimations();
+            initMenuEntryAnimations();
+            initSectionReveal();
+            initMenuSoundFx();
+            initParallax();
+            initPageTransitions();
+
+            const environmentSelect = document.getElementById('environmentSelect');
+            const savedEnv = localStorage.getItem('star-multimedia-env') || 'local';
+            if (environmentSelect) {
+                environmentSelect.value = savedEnv;
+                environmentSelect.addEventListener('change', (e) => applyEnvironment(e.target.value));
+            }
+            applyEnvironment(savedEnv);
+
+            const introPlayBtn = document.getElementById('introPlayBtn');
+            const introStopBtn = document.getElementById('introStopBtn');
+            if (introPlayBtn) introPlayBtn.addEventListener('click', playIntroNarration);
+            if (introStopBtn) introStopBtn.addEventListener('click', stopIntroNarration);
+        });
+    </script>
+</body>
+</html>

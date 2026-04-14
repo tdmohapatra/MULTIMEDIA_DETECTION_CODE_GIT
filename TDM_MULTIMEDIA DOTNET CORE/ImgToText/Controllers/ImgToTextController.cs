@@ -6,6 +6,8 @@ using ImgToText.Services;
 using System.Text.RegularExpressions;
 using System.Collections.Generic;
 using System.Linq;
+using System.Diagnostics;
+using OpenCvSharp;
 
 namespace ImgToTextApp.Controllers
 {
@@ -32,11 +34,15 @@ namespace ImgToTextApp.Controllers
         }
 
         [HttpPost]
-        public async Task<IActionResult> Upload(IFormFile file, string cameraFile)
+        public async Task<IActionResult> Upload(IFormFile file, string cameraFile, string ocrPreset = "balanced")
         {
             string extractedText = string.Empty;
             float confidence = 0.0f;
             string processedImagePath = string.Empty;
+            string analysisImagePath = string.Empty;
+            var totalTimer = Stopwatch.StartNew();
+            double extractionMs = 0;
+            var normalizedPreset = NormalizeOcrPreset(ocrPreset);
 
             try
             {
@@ -49,19 +55,16 @@ namespace ImgToTextApp.Controllers
                     // Save the original image
                     var fileName = $"camera_capture_{DateTime.Now:yyyyMMdd_HHmmss}.png";
                     processedImagePath = Path.Combine(uploadsPath, fileName);
+                    analysisImagePath = processedImagePath;
                     await System.IO.File.WriteAllBytesAsync(processedImagePath, imageBytes);
 
                     // Extract text with confidence
-                    var result = _imageTextService.ExtractTextWithConfidence(processedImagePath);
+                    var extractionTimer = Stopwatch.StartNew();
+                    var result = ExecuteOcrByPreset(processedImagePath, normalizedPreset);
+                    extractionTimer.Stop();
+                    extractionMs = extractionTimer.Elapsed.TotalMilliseconds;
                     extractedText = result.Text;
                     confidence = result.Confidence;
-
-                    if (string.IsNullOrWhiteSpace(extractedText))
-                    {
-                        // Try alternative extraction method
-                        extractedText = _imageTextService.ExtractTextFromImageWithPreprocessing(processedImagePath);
-                        confidence = 60.0f; // Default confidence for fallback
-                    }
 
                     // Clean up if no text found
                     if (string.IsNullOrWhiteSpace(extractedText))
@@ -82,6 +85,7 @@ namespace ImgToTextApp.Controllers
                     var fileExtension = Path.GetExtension(file.FileName).ToLowerInvariant();
                     var fileName = $"{safeBaseName}_{DateTime.Now:yyyyMMdd_HHmmss}{fileExtension}";
                     var filePath = Path.Combine(uploadsPath, fileName);
+                    analysisImagePath = filePath;
 
                     // Save the uploaded file
                     await using (var stream = new FileStream(filePath, FileMode.Create))
@@ -90,16 +94,12 @@ namespace ImgToTextApp.Controllers
                     }
 
                     // Extract text with confidence
-                    var result = _imageTextService.ExtractTextWithConfidence(filePath);
+                    var extractionTimer = Stopwatch.StartNew();
+                    var result = ExecuteOcrByPreset(filePath, normalizedPreset);
+                    extractionTimer.Stop();
+                    extractionMs = extractionTimer.Elapsed.TotalMilliseconds;
                     extractedText = result.Text;
                     confidence = result.Confidence;
-
-                    if (string.IsNullOrWhiteSpace(extractedText))
-                    {
-                        // Try alternative extraction method
-                        extractedText = _imageTextService.ExtractTextFromImageWithPreprocessing(filePath);
-                        confidence = 60.0f; // Default confidence for fallback
-                    }
 
                     // Clean up if no text found
                     if (string.IsNullOrWhiteSpace(extractedText))
@@ -116,12 +116,30 @@ namespace ImgToTextApp.Controllers
                     return ApiError("No image data provided", 400);
                 }
 
+                totalTimer.Stop();
                 return Json(new
                 {
                     success = !string.IsNullOrWhiteSpace(extractedText),
                     extractedText = extractedText ?? "",
                     confidence = confidence,
                     processedImagePath = processedImagePath,
+                    ocrPreset = normalizedPreset,
+                    ocrStageTimings = new
+                    {
+                        extractionMs = Math.Round(extractionMs, 2),
+                        totalMs = Math.Round(totalTimer.Elapsed.TotalMilliseconds, 2)
+                    },
+                    ocrDiagnostics = BuildOcrDiagnostics(
+                        analysisImagePath,
+                        extractedText,
+                        confidence,
+                        $"normal:{normalizedPreset}",
+                        !string.IsNullOrWhiteSpace(extractedText),
+                        new OcrStageTimings
+                        {
+                            ExtractionMs = Math.Round(extractionMs, 2),
+                            TotalMs = Math.Round(totalTimer.Elapsed.TotalMilliseconds, 2)
+                        }),
                     message = !string.IsNullOrWhiteSpace(extractedText) ?
                              "Text extracted successfully" :
                              "No text found in image"
@@ -146,13 +164,18 @@ namespace ImgToTextApp.Controllers
         }
 
         [HttpPost]
-        public async Task<IActionResult> UploadEnhanced(IFormFile file, string cameraFile)
+        public async Task<IActionResult> UploadEnhanced(IFormFile file, string cameraFile, string ocrPreset = "balanced")
         {
             try
             {
                 string extractedText = string.Empty;
                 string compressedImagePath = string.Empty;
                 float confidence = 0.0f;
+                string analysisImagePath = string.Empty;
+                var totalTimer = Stopwatch.StartNew();
+                double compressionMs = 0;
+                double extractionMs = 0;
+                var normalizedPreset = NormalizeOcrPreset(ocrPreset);
 
                 if (!string.IsNullOrEmpty(cameraFile))
                 {
@@ -166,12 +189,19 @@ namespace ImgToTextApp.Controllers
                     // Try enhanced processing with compression
                     try
                     {
+                        var compressionTimer = Stopwatch.StartNew();
                         var result = _imageTextService.ProcessImageWithCompression(tempImagePath);
+                        compressionTimer.Stop();
+                        compressionMs = compressionTimer.Elapsed.TotalMilliseconds;
                         extractedText = result.Text;
                         compressedImagePath = result.CompressedImagePath;
+                        analysisImagePath = compressedImagePath;
 
                         // Get confidence for enhanced processing
-                        var confidenceResult = _imageTextService.ExtractTextWithConfidence(compressedImagePath);
+                        var extractionTimer = Stopwatch.StartNew();
+                        var confidenceResult = ExecuteOcrByPreset(compressedImagePath, normalizedPreset);
+                        extractionTimer.Stop();
+                        extractionMs = extractionTimer.Elapsed.TotalMilliseconds;
                         confidence = confidenceResult.Confidence;
                     }
                     catch (NotImplementedException)
@@ -180,8 +210,12 @@ namespace ImgToTextApp.Controllers
                         var processedPath = _imageTextService.PreprocessAndSaveImage(tempImagePath);
                         extractedText = _imageTextService.ExtractTextFromImageTDMWithPreprocessing(processedPath);
                         compressedImagePath = processedPath;
+                        analysisImagePath = processedPath;
 
-                        var confidenceResult = _imageTextService.ExtractTextWithConfidence(processedPath);
+                        var extractionTimer = Stopwatch.StartNew();
+                        var confidenceResult = ExecuteOcrByPreset(processedPath, normalizedPreset);
+                        extractionTimer.Stop();
+                        extractionMs = extractionTimer.Elapsed.TotalMilliseconds;
                         confidence = confidenceResult.Confidence;
                     }
 
@@ -207,11 +241,18 @@ namespace ImgToTextApp.Controllers
 
                     try
                     {
+                        var compressionTimer = Stopwatch.StartNew();
                         var result = _imageTextService.ProcessImageWithCompression(filePath);
+                        compressionTimer.Stop();
+                        compressionMs = compressionTimer.Elapsed.TotalMilliseconds;
                         extractedText = result.Text;
                         compressedImagePath = result.CompressedImagePath;
+                        analysisImagePath = compressedImagePath;
 
-                        var confidenceResult = _imageTextService.ExtractTextWithConfidence(compressedImagePath);
+                        var extractionTimer = Stopwatch.StartNew();
+                        var confidenceResult = ExecuteOcrByPreset(compressedImagePath, normalizedPreset);
+                        extractionTimer.Stop();
+                        extractionMs = extractionTimer.Elapsed.TotalMilliseconds;
                         confidence = confidenceResult.Confidence;
                     }
                     catch (NotImplementedException)
@@ -220,8 +261,12 @@ namespace ImgToTextApp.Controllers
                         var processedPath = _imageTextService.PreprocessAndSaveImage(filePath);
                         extractedText = _imageTextService.ExtractTextFromImageTDMWithPreprocessing(processedPath);
                         compressedImagePath = processedPath;
+                        analysisImagePath = processedPath;
 
-                        var confidenceResult = _imageTextService.ExtractTextWithConfidence(processedPath);
+                        var extractionTimer = Stopwatch.StartNew();
+                        var confidenceResult = ExecuteOcrByPreset(processedPath, normalizedPreset);
+                        extractionTimer.Stop();
+                        extractionMs = extractionTimer.Elapsed.TotalMilliseconds;
                         confidence = confidenceResult.Confidence;
                     }
 
@@ -233,12 +278,32 @@ namespace ImgToTextApp.Controllers
                     return ApiError("No image data provided", 400);
                 }
 
+                totalTimer.Stop();
                 return Json(new
                 {
                     success = !string.IsNullOrWhiteSpace(extractedText),
                     extractedText = extractedText ?? "",
                     confidence = confidence,
                     compressedImagePath = compressedImagePath != null ? Path.GetFileName(compressedImagePath) : null,
+                    ocrPreset = normalizedPreset,
+                    ocrStageTimings = new
+                    {
+                        compressionMs = Math.Round(compressionMs, 2),
+                        extractionMs = Math.Round(extractionMs, 2),
+                        totalMs = Math.Round(totalTimer.Elapsed.TotalMilliseconds, 2)
+                    },
+                    ocrDiagnostics = BuildOcrDiagnostics(
+                        analysisImagePath,
+                        extractedText,
+                        confidence,
+                        $"enhanced:{normalizedPreset}",
+                        !string.IsNullOrWhiteSpace(extractedText),
+                        new OcrStageTimings
+                        {
+                            CompressionMs = Math.Round(compressionMs, 2),
+                            ExtractionMs = Math.Round(extractionMs, 2),
+                            TotalMs = Math.Round(totalTimer.Elapsed.TotalMilliseconds, 2)
+                        }),
                     message = !string.IsNullOrWhiteSpace(extractedText) ?
                              "Image processed with enhanced OCR and compression" :
                              "No text found in image"
@@ -725,6 +790,156 @@ namespace ImgToTextApp.Controllers
                 error = message
             });
         }
+
+        private OcrDiagnostics BuildOcrDiagnostics(
+            string imagePath,
+            string extractedText,
+            float confidence,
+            string mode,
+            bool success,
+            OcrStageTimings? stageTimings = null)
+        {
+            var normalizedText = extractedText ?? string.Empty;
+            var textLength = normalizedText.Length;
+            var tokenCount = Regex.Matches(normalizedText, @"\b[\w\d]+\b").Count;
+            var alnumChars = normalizedText.Count(char.IsLetterOrDigit);
+            var alnumRatio = textLength == 0 ? 0 : (double)alnumChars / textLength;
+
+            var diagnostics = new OcrDiagnostics
+            {
+                Mode = mode,
+                Success = success,
+                Confidence = confidence,
+                TextLength = textLength,
+                TokenCount = tokenCount,
+                AlphaNumericRatio = Math.Round(alnumRatio, 4),
+                QualityHint = confidence >= 80 ? "high" : confidence >= 55 ? "medium" : "low",
+                StageTimings = stageTimings ?? new OcrStageTimings(),
+                SignatureInsights = DetectSignatureCandidates(imagePath)
+            };
+
+            return diagnostics;
+        }
+
+        private string NormalizeOcrPreset(string? preset)
+        {
+            var value = (preset ?? "balanced").Trim().ToLowerInvariant();
+            return value switch
+            {
+                "strict" => "strict",
+                "sensitive" => "sensitive",
+                _ => "balanced"
+            };
+        }
+
+        private (string Text, float Confidence) ExecuteOcrByPreset(string imagePath, string preset)
+        {
+            if (preset == "sensitive")
+            {
+                var preprocessedText = _imageTextService.ExtractTextFromImageWithPreprocessing(imagePath);
+                if (!string.IsNullOrWhiteSpace(preprocessedText))
+                {
+                    return (preprocessedText, 72f);
+                }
+            }
+
+            var confidenceResult = _imageTextService.ExtractTextWithConfidence(imagePath);
+            var text = confidenceResult.Text ?? string.Empty;
+            var confidence = confidenceResult.Confidence;
+            if (preset == "strict")
+            {
+                return (confidence >= 75f ? text : string.Empty, confidence);
+            }
+
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                text = _imageTextService.ExtractTextFromImageWithPreprocessing(imagePath);
+                if (!string.IsNullOrWhiteSpace(text) && confidence < 60f)
+                {
+                    confidence = 60f;
+                }
+            }
+
+            return (text, confidence);
+        }
+
+        private SignatureInsights DetectSignatureCandidates(string imagePath)
+        {
+            var insights = new SignatureInsights();
+            if (string.IsNullOrWhiteSpace(imagePath) || !System.IO.File.Exists(imagePath))
+                return insights;
+
+            try
+            {
+                using var mat = Cv2.ImRead(imagePath, ImreadModes.Grayscale);
+                if (mat.Empty())
+                    return insights;
+
+                var h = mat.Rows;
+                var w = mat.Cols;
+                if (h < 24 || w < 24)
+                    return insights;
+
+                var roiY = (int)(h * 0.58);
+                roiY = Math.Max(0, Math.Min(roiY, h - 1));
+                using var roi = new Mat(mat, new Rect(0, roiY, w, h - roiY));
+                using var blur = new Mat();
+                Cv2.GaussianBlur(roi, blur, new Size(3, 3), 0);
+                using var bin = new Mat();
+                Cv2.Threshold(blur, bin, 0, 255, ThresholdTypes.BinaryInv | ThresholdTypes.Otsu);
+
+                Cv2.FindContours(bin, out var contours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+
+                var minArea = (roi.Rows * roi.Cols) * 0.004;
+                foreach (var c in contours)
+                {
+                    var rect = Cv2.BoundingRect(c);
+                    if (rect.Width * rect.Height < minArea)
+                        continue;
+                    var aspect = rect.Height == 0 ? 0 : (double)rect.Width / rect.Height;
+                    if (aspect < 2.0)
+                        continue;
+
+                    insights.Candidates.Add(new SignatureCandidate
+                    {
+                        X = rect.X,
+                        Y = rect.Y + roiY,
+                        Width = rect.Width,
+                        Height = rect.Height,
+                        AreaRatio = Math.Round((rect.Width * rect.Height) / (double)(w * h), 5)
+                    });
+                }
+
+                insights.Candidates = insights.Candidates
+                    .OrderByDescending(c => c.AreaRatio)
+                    .Take(3)
+                    .ToList();
+
+                insights.HasSignatureLikeRegion = insights.Candidates.Count > 0;
+                insights.Score = insights.HasSignatureLikeRegion
+                    ? Math.Min(0.95, 0.45 + insights.Candidates.Sum(c => c.AreaRatio) * 3.0)
+                    : 0.0;
+
+                if (insights.HasSignatureLikeRegion)
+                {
+                    var avgArea = insights.Candidates.Average(c => c.AreaRatio);
+                    var inkDensity = Cv2.CountNonZero(bin) / (double)(bin.Rows * bin.Cols);
+                    insights.InkDensity = Math.Round(inkDensity, 4);
+                    insights.TamperScore = Math.Round(Math.Clamp((inkDensity * 1.8) + (avgArea * 4.5), 0.0, 1.0), 4);
+                    insights.PotentialTamper = insights.TamperScore >= 0.68;
+                    insights.TamperSignals = new List<string>();
+                    if (inkDensity > 0.32) insights.TamperSignals.Add("high_ink_density");
+                    if (avgArea > 0.08) insights.TamperSignals.Add("oversized_signature_region");
+                    if (insights.Candidates.Count >= 3) insights.TamperSignals.Add("multiple_signature_regions");
+                }
+            }
+            catch
+            {
+                // Diagnostics should never break OCR response.
+            }
+
+            return insights;
+        }
     }
 
     // Request models
@@ -755,5 +970,45 @@ namespace ImgToTextApp.Controllers
         public string Text { get; set; }
         public float Confidence { get; set; }
         public bool Success { get; set; }
+    }
+
+    public class OcrDiagnostics
+    {
+        public string Mode { get; set; } = "normal";
+        public bool Success { get; set; }
+        public float Confidence { get; set; }
+        public int TextLength { get; set; }
+        public int TokenCount { get; set; }
+        public double AlphaNumericRatio { get; set; }
+        public string QualityHint { get; set; } = "unknown";
+        public OcrStageTimings StageTimings { get; set; } = new OcrStageTimings();
+        public SignatureInsights SignatureInsights { get; set; } = new SignatureInsights();
+    }
+
+    public class OcrStageTimings
+    {
+        public double CompressionMs { get; set; }
+        public double ExtractionMs { get; set; }
+        public double TotalMs { get; set; }
+    }
+
+    public class SignatureInsights
+    {
+        public bool HasSignatureLikeRegion { get; set; }
+        public double Score { get; set; }
+        public bool PotentialTamper { get; set; }
+        public double TamperScore { get; set; }
+        public double InkDensity { get; set; }
+        public List<string> TamperSignals { get; set; } = new List<string>();
+        public List<SignatureCandidate> Candidates { get; set; } = new List<SignatureCandidate>();
+    }
+
+    public class SignatureCandidate
+    {
+        public int X { get; set; }
+        public int Y { get; set; }
+        public int Width { get; set; }
+        public int Height { get; set; }
+        public double AreaRatio { get; set; }
     }
 }
