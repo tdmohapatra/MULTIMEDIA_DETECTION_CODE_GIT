@@ -11,12 +11,6 @@ namespace STAR_MUTIMEDIA.Services
 {
     public partial class RealTimeDetectionService
     {
-        private static readonly string[] MobileNetSsdClassNames =
-        {
-            "background", "aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car", "cat", "chair", "cow",
-            "diningtable", "dog", "horse", "motorbike", "person", "pottedplant", "sheep", "sofa", "train", "tvmonitor"
-        };
-
         private static readonly string[] YoloCocoClassNames =
         {
             "person","bicycle","car","motorcycle","airplane","bus","train","truck","boat","traffic light",
@@ -29,105 +23,35 @@ namespace STAR_MUTIMEDIA.Services
             "toaster","sink","refrigerator","book","clock","vase","scissors","teddy bear","hair drier","toothbrush"
         };
 
-        private static bool IsLikelyTextProto(string path)
+        // Tries GPU-accelerated inference via OpenCV's OpenCL target (works with the stock
+        // OpenCvSharp4.runtime.win package, no CUDA build required). SetPreferableTarget alone
+        // doesn't guarantee the combo works for every layer in the graph, so we validate with a
+        // real warmup forward pass and fall back to CPU if it throws.
+        private static bool TryAccelerateWithOpenCl(Net net, Size warmupInputSize)
         {
             try
             {
-                var bytes = File.ReadAllBytes(path);
-                if (bytes.Length == 0)
-                    return false;
-                var sampleLen = Math.Min(bytes.Length, 4096);
-                var text = Encoding.UTF8.GetString(bytes, 0, sampleLen);
-                return text.Contains("layer", StringComparison.OrdinalIgnoreCase)
-                       && text.Contains("{")
-                       && text.Contains("name", StringComparison.OrdinalIgnoreCase);
+                net.SetPreferableBackend(Backend.OPENCV);
+                net.SetPreferableTarget(Target.OPENCL);
+
+                using var dummy = new Mat(warmupInputSize, MatType.CV_8UC3, Scalar.All(0));
+                using var blob = CvDnn.BlobFromImage(dummy, 1.0 / 255.0, warmupInputSize, new Scalar(), swapRB: true, crop: false);
+                net.SetInput(blob);
+                using var warmupOutput = net.Forward();
+                return true;
             }
             catch
             {
-                return false;
-            }
-        }
-
-        private static (string proto, string weights)? ResolveSsdModelFiles(string dir)
-        {
-            if (!Directory.Exists(dir))
-                return null;
-
-            var protoCandidates = new List<string>();
-            var modelCandidates = new List<string>();
-
-            protoCandidates.AddRange(Directory.GetFiles(dir, "*.prototxt", SearchOption.TopDirectoryOnly));
-            modelCandidates.AddRange(Directory.GetFiles(dir, "*.caffemodel", SearchOption.TopDirectoryOnly));
-
-            var namedProto = Path.Combine(dir, "MobileNetSSD_deploy.prototxt");
-            if (File.Exists(namedProto) && !protoCandidates.Contains(namedProto, StringComparer.OrdinalIgnoreCase))
-                protoCandidates.Insert(0, namedProto);
-
-            var namedModelA = Path.Combine(dir, "MobileNetSSD_deploy.caffemodel");
-            var namedModelB = Path.Combine(dir, "mobilenet_iter_73000.caffemodel");
-            if (File.Exists(namedModelA) && !modelCandidates.Contains(namedModelA, StringComparer.OrdinalIgnoreCase))
-                modelCandidates.Insert(0, namedModelA);
-            if (File.Exists(namedModelB) && !modelCandidates.Contains(namedModelB, StringComparer.OrdinalIgnoreCase))
-                modelCandidates.Insert(0, namedModelB);
-
-            var validProto = protoCandidates.FirstOrDefault(IsLikelyTextProto);
-            var validModel = modelCandidates.FirstOrDefault();
-
-            if (!string.IsNullOrWhiteSpace(validProto) && !string.IsNullOrWhiteSpace(validModel))
-                return (validProto, validModel);
-
-            // Some deployments accidentally swap names/content. Recover by scanning all files.
-            var anyFiles = Directory.GetFiles(dir, "*", SearchOption.TopDirectoryOnly);
-            var fallbackProto = anyFiles.FirstOrDefault(IsLikelyTextProto);
-            var fallbackModel = anyFiles.FirstOrDefault(f =>
-                !string.Equals(f, fallbackProto, StringComparison.OrdinalIgnoreCase)
-                && !IsLikelyTextProto(f));
-            if (!string.IsNullOrWhiteSpace(fallbackProto) && !string.IsNullOrWhiteSpace(fallbackModel))
-                return (fallbackProto, fallbackModel);
-
-            return null;
-        }
-
-        private Net? GetOrLoadMobileNetSsd()
-        {
-            if (_mobileNetSsd != null)
-                return _mobileNetSsd;
-            if (_mobileNetSsdLoadFailed)
-                return null;
-
-            lock (_ssdLoadLock)
-            {
-                if (_mobileNetSsd != null)
-                    return _mobileNetSsd;
-                if (_mobileNetSsdLoadFailed)
-                    return null;
-
-                var dir = Path.Combine(Directory.GetCurrentDirectory(), "Uploads", "models");
-                var resolved = ResolveSsdModelFiles(dir);
-                if (resolved == null)
-                {
-                    _mobileNetSsdLoadFailed = true;
-                    return null;
-                }
-                var (proto, weights) = resolved.Value;
-
                 try
                 {
-                    var net = CvDnn.ReadNetFromCaffe(proto, weights);
-                    if (net == null)
-                    {
-                        _mobileNetSsdLoadFailed = true;
-                        return null;
-                    }
-
-                    _mobileNetSsd = net;
-                    return _mobileNetSsd;
+                    net.SetPreferableBackend(Backend.OPENCV);
+                    net.SetPreferableTarget(Target.CPU);
                 }
                 catch
                 {
-                    _mobileNetSsdLoadFailed = true;
-                    return null;
+                    // Leave the net on its default backend/target if even this fails.
                 }
+                return false;
             }
         }
 
@@ -164,12 +88,104 @@ namespace STAR_MUTIMEDIA.Services
                         return null;
                     }
 
-                    _yoloV8Net = CvDnn.ReadNetFromOnnx(model);
+                    var net = CvDnn.ReadNetFromOnnx(model);
+                    if (net == null)
+                    {
+                        _yoloLoadFailed = true;
+                        return null;
+                    }
+
+                    _yoloUsesOpenCl = TryAccelerateWithOpenCl(net, new Size(640, 640));
+                    _yoloV8Net = net;
                     return _yoloV8Net;
                 }
                 catch
                 {
                     _yoloLoadFailed = true;
+                    return null;
+                }
+            }
+        }
+
+        private Net? GetOrLoadYuNetFace()
+        {
+            if (_yunetFaceNet != null)
+                return _yunetFaceNet;
+            if (_yunetLoadFailed)
+                return null;
+
+            lock (_yunetLoadLock)
+            {
+                if (_yunetFaceNet != null)
+                    return _yunetFaceNet;
+                if (_yunetLoadFailed)
+                    return null;
+
+                try
+                {
+                    var path = Path.Combine(Directory.GetCurrentDirectory(), "Uploads", "models", "face_detection_yunet_2023mar.onnx");
+                    if (!File.Exists(path))
+                    {
+                        _yunetLoadFailed = true;
+                        return null;
+                    }
+
+                    var net = CvDnn.ReadNetFromOnnx(path);
+                    if (net == null)
+                    {
+                        _yunetLoadFailed = true;
+                        return null;
+                    }
+
+                    _yunetUsesOpenCl = TryAccelerateWithOpenCl(net, new Size(320, 320));
+                    _yunetFaceNet = net;
+                    return _yunetFaceNet;
+                }
+                catch
+                {
+                    _yunetLoadFailed = true;
+                    return null;
+                }
+            }
+        }
+
+        private Net? GetOrLoadEmotionFerPlus()
+        {
+            if (_emotionFerPlusNet != null)
+                return _emotionFerPlusNet;
+            if (_emotionLoadFailed)
+                return null;
+
+            lock (_emotionLoadLock)
+            {
+                if (_emotionFerPlusNet != null)
+                    return _emotionFerPlusNet;
+                if (_emotionLoadFailed)
+                    return null;
+
+                try
+                {
+                    var path = Path.Combine(Directory.GetCurrentDirectory(), "Uploads", "models", "emotion-ferplus-8.onnx");
+                    if (!File.Exists(path))
+                    {
+                        _emotionLoadFailed = true;
+                        return null;
+                    }
+
+                    var net = CvDnn.ReadNetFromOnnx(path);
+                    if (net == null)
+                    {
+                        _emotionLoadFailed = true;
+                        return null;
+                    }
+
+                    _emotionUsesOpenCl = TryAccelerateWithOpenCl(net, new Size(64, 64));
+                    _emotionFerPlusNet = net;
+                    return _emotionFerPlusNet;
+                }
+                catch
+                {
+                    _emotionLoadFailed = true;
                     return null;
                 }
             }
@@ -195,99 +211,25 @@ namespace STAR_MUTIMEDIA.Services
             public required List<string> ExecutedSources { get; init; }
             public int FrameWidth { get; init; }
             public int FrameHeight { get; init; }
-            public Net? SsdNet { get; set; }
-        }
-
-        private sealed class SsdSceneDetectionStrategy : ISceneDetectionStrategy
-        {
-            public string SourceKey => "ssd";
-            public bool ShouldRun(SceneProcessingOptions options) =>
-                options.EnableSsdModel
-                && !string.Equals(options.SceneModelBackend, "yolo", StringComparison.OrdinalIgnoreCase);
-
-            public void Execute(SceneStrategyContext context)
-            {
-                if (context.SsdNet == null) return;
-                try
-                {
-                    using var bgr = EnsureThreeChannelBgr(context.ProcessedFrameBgr);
-                    using var blob = CvDnn.BlobFromImage(bgr, 1.0, new Size(300, 300), new Scalar(104, 117, 123), false, false);
-                    context.SsdNet.SetInput(blob);
-                    using var output = context.SsdNet.Forward();
-                    var n = output.Size(2);
-                    for (var i = 0; i < n; i++)
-                    {
-                        var confidence = output.At<float>(0, 0, i, 2);
-                        var ssdThreshold = Math.Clamp(context.Options.SsdConfidenceThreshold, 0.05, 0.95);
-                        if (confidence < ssdThreshold) continue;
-                        var classId = (int)output.At<float>(0, 0, i, 1);
-                        if (classId < 0 || classId >= MobileNetSsdClassNames.Length) continue;
-                        var label = MobileNetSsdClassNames[classId];
-                        if (string.Equals(label, "background", StringComparison.OrdinalIgnoreCase)) continue;
-
-                        var x1 = output.At<float>(0, 0, i, 3) * context.FrameWidth;
-                        var y1 = output.At<float>(0, 0, i, 4) * context.FrameHeight;
-                        var x2 = output.At<float>(0, 0, i, 5) * context.FrameWidth;
-                        var y2 = output.At<float>(0, 0, i, 6) * context.FrameHeight;
-                        var w = Math.Max(1, x2 - x1);
-                        var h = Math.Max(1, y2 - y1);
-                        var cat = MapLabelToCategory(label);
-                        if ((cat == "Human" && !context.Options.IncludeHuman) ||
-                            (cat == "Animal" && !context.Options.IncludeAnimal) ||
-                            (cat == "Object" && !context.Options.IncludeObject))
-                        {
-                            continue;
-                        }
-
-                        var ent = new SceneEntity
-                        {
-                            Category = cat,
-                            Label = label,
-                            Confidence = confidence,
-                            BBox = new BoundingBox { X = x1, Y = y1, Width = w, Height = h },
-                            Source = SourceKey
-                        };
-                        context.Scene.Entities.Add(ent);
-                        context.DetectionData.Objects.Add(new ObjectDetection
-                        {
-                            Type = $"scene:{label}",
-                            Confidence = confidence,
-                            BBox = ent.BBox,
-                            AdditionalInfo = cat
-                        });
-                    }
-                    context.ExecutedSources.Add(SourceKey);
-                }
-                catch (Exception ex)
-                {
-                    context.Scene.Pipeline = "MobileNetSSD_Error";
-                    context.Logs.Add(new SystemLog
-                    {
-                        Message = $"Scene SSD error: {ex.Message}",
-                        Timestamp = DateTime.UtcNow,
-                        Level = "Warning",
-                        Component = "SceneAnalysis"
-                    });
-                }
-            }
+            public Net? DetectionNet { get; set; }
         }
 
         private sealed class YoloSceneDetectionStrategy : ISceneDetectionStrategy
         {
             public string SourceKey => "yolo";
-            public bool ShouldRun(SceneProcessingOptions options) => string.Equals(options?.SceneModelBackend, "yolo", StringComparison.OrdinalIgnoreCase) && options.EnableSsdModel;
+            public bool ShouldRun(SceneProcessingOptions options) => options.EnableSsdModel;
 
             public void Execute(SceneStrategyContext context)
             {
-                if (context.SsdNet == null)
+                if (context.DetectionNet == null)
                     return;
                 try
                 {
                     using var bgr = EnsureThreeChannelBgr(context.ProcessedFrameBgr);
                     var yoloInput = Math.Clamp(context.Options.YoloInputSize, 320, 960);
                     using var blob = CvDnn.BlobFromImage(bgr, 1.0 / 255.0, new Size(yoloInput, yoloInput), new Scalar(), swapRB: true, crop: false);
-                    context.SsdNet.SetInput(blob);
-                    using var output = context.SsdNet.Forward();
+                    context.DetectionNet.SetInput(blob);
+                    using var output = context.DetectionNet.Forward();
                     ParseYoloOutputAndAppendEntities(output, context, yoloInput);
                     context.ExecutedSources.Add(SourceKey);
                 }
@@ -320,7 +262,7 @@ namespace STAR_MUTIMEDIA.Services
                 return;
             }
 
-            var threshold = Math.Clamp(context.Options.SsdConfidenceThreshold, 0.05, 0.95);
+            var threshold = Math.Clamp(context.Options.ObjectConfidenceThreshold, 0.05, 0.95);
             var scaleX = context.FrameWidth / (double)Math.Max(1, modelInputSize);
             var scaleY = context.FrameHeight / (double)Math.Max(1, modelInputSize);
             var boxes = new List<Rect>();
@@ -435,30 +377,6 @@ namespace STAR_MUTIMEDIA.Services
             }
         }
 
-        private sealed class FullBodySceneDetectionStrategy : ISceneDetectionStrategy
-        {
-            public string SourceKey => "fullbody";
-            public bool ShouldRun(SceneProcessingOptions options) => options.EnableFullBodyCascade && options.IncludeHuman;
-
-            public void Execute(SceneStrategyContext context)
-            {
-                context.Service.AddHumanFromFullBody(context.ProcessedFrameBgr, context.GrayFrame, context.DetectionData, context.Scene, context.Options);
-                context.ExecutedSources.Add(SourceKey);
-            }
-        }
-
-        private sealed class CatSceneDetectionStrategy : ISceneDetectionStrategy
-        {
-            public string SourceKey => "cat_cascade";
-            public bool ShouldRun(SceneProcessingOptions options) => options.EnableCatCascade && options.IncludeAnimal;
-
-            public void Execute(SceneStrategyContext context)
-            {
-                context.Service.AddCatsFromCascade(context.GrayFrame, context.DetectionData, context.Scene, context.Options);
-                context.ExecutedSources.Add(SourceKey);
-            }
-        }
-
         private void RunSceneEntityDetection(
             Mat processedFrameBgr,
             Mat grayFrame,
@@ -470,30 +388,24 @@ namespace STAR_MUTIMEDIA.Services
             var opts = options ?? new SceneProcessingOptions();
             var scene = new SceneAnalysisResult
             {
-                Pipeline = "CascadeHybrid",
+                Pipeline = "YoloFaceHybrid",
                 Entities = new List<SceneEntity>(),
-                Notes = "Place MobileNetSSD_deploy.prototxt + .caffemodel under Uploads/models for full VOC object detection. Optional: haarcascade_frontalcatface.xml in cascades for cats without SSD."
+                Notes = "YOLO for objects/people/animals, YuNet for faces."
             };
 
             var fw = processedFrameBgr.Width;
             var fh = processedFrameBgr.Height;
 
             var executedSources = new List<string>();
-            var runSsd = opts.EnableSsdModel;
+            var runObjectModel = opts.EnableSsdModel;
             var runFace = opts.EnableFaceCascade;
-            var runFullBody = opts.EnableFullBodyCascade;
-            var runCat = opts.EnableCatCascade;
 
             scene.ModelStatus = new SceneModelStatus
             {
-                SsdRequested = runSsd,
+                SsdRequested = runObjectModel,
                 FaceCascadeRequested = runFace,
-                FullBodyRequested = runFullBody,
-                CatCascadeRequested = runCat,
                 ProcessAllModels = opts.ProcessAllModels,
-                FaceCascadeReady = _faceCascade != null && !_faceCascade.Empty(),
-                FullBodyReady = _fullbody != null && !_fullbody.Empty(),
-                CatCascadeReady = _catFaceCascade != null && !_catFaceCascade.Empty()
+                FaceCascadeReady = _yunetFaceNet != null
             };
 
             var context = new SceneStrategyContext
@@ -509,34 +421,19 @@ namespace STAR_MUTIMEDIA.Services
                 ExecutedSources = executedSources,
                 FrameWidth = fw,
                 FrameHeight = fh,
-                SsdNet = runSsd
-                    ? (string.Equals(opts.SceneModelBackend, "yolo", StringComparison.OrdinalIgnoreCase)
-                        ? GetOrLoadYoloV8()
-                        : GetOrLoadMobileNetSsd())
-                    : null
+                DetectionNet = runObjectModel ? GetOrLoadYoloV8() : null
             };
-            scene.ModelStatus.SsdLoaded = context.SsdNet != null;
+            scene.ModelStatus.SsdLoaded = context.DetectionNet != null;
 
             var strategies = new ISceneDetectionStrategy[]
             {
                 new YoloSceneDetectionStrategy(),
-                new SsdSceneDetectionStrategy(),
-                new FaceSceneDetectionStrategy(),
-                new FullBodySceneDetectionStrategy(),
-                new CatSceneDetectionStrategy()
+                new FaceSceneDetectionStrategy()
             };
             foreach (var strategy in strategies)
             {
                 if (!strategy.ShouldRun(opts))
                     continue;
-                if (!opts.ProcessAllModels)
-                {
-                    var backend = string.IsNullOrWhiteSpace(opts.SceneModelBackend) ? "ssd" : opts.SceneModelBackend.Trim().ToLowerInvariant();
-                    if (backend == "yolo" && strategy is not YoloSceneDetectionStrategy)
-                        continue;
-                    if (backend != "yolo" && strategy is not SsdSceneDetectionStrategy)
-                        continue;
-                }
                 strategy.Execute(context);
             }
 
@@ -547,6 +444,8 @@ namespace STAR_MUTIMEDIA.Services
                 scene.Entities = scene.Entities.Where(e => !string.Equals(e.Category, "Animal", StringComparison.OrdinalIgnoreCase)).ToList();
             if (!opts.IncludeHuman)
                 scene.Entities = scene.Entities.Where(e => !string.Equals(e.Category, "Human", StringComparison.OrdinalIgnoreCase)).ToList();
+
+            session.EntityTracker.Assign(scene.Entities);
 
             scene.Pipeline = executedSources.Count == 0 ? "Disabled" : string.Join("+", executedSources.Distinct());
             scene.Notes = $"{scene.Notes} ActiveSources={scene.Pipeline}; Include(H:{opts.IncludeHuman},A:{opts.IncludeAnimal},O:{opts.IncludeObject})";
@@ -591,7 +490,7 @@ namespace STAR_MUTIMEDIA.Services
             {
                 if (face.BBox == null)
                     continue;
-                if (scene.Entities.Any(e => e.Source == "ssd" && e.Label == "person" && IoU(e.BBox, face.BBox) > 0.4))
+                if (scene.Entities.Any(e => e.Source == "yolo" && e.Label == "person" && IoU(e.BBox, face.BBox) > 0.4))
                     continue;
                 scene.Entities.Add(new SceneEntity
                 {
@@ -601,96 +500,6 @@ namespace STAR_MUTIMEDIA.Services
                     BBox = CloneBBox(face.BBox),
                     Source = "face"
                 });
-            }
-        }
-
-        private void AddHumanFromFullBody(Mat processedFrameBgr, Mat grayFrame, DetectionData detectionData, SceneAnalysisResult scene, SceneProcessingOptions opts)
-        {
-            if (_fullbody == null || _fullbody.Empty())
-                return;
-
-            try
-            {
-                var fullBodyMinNeighbors = Math.Clamp(opts.FullBodyMinNeighbors, 1, 12);
-                var bodies = _fullbody.DetectMultiScale(grayFrame, 1.1, fullBodyMinNeighbors, HaarDetectionTypes.ScaleImage, new Size(40, 40));
-                foreach (var r in bodies)
-                {
-                    if (detectionData.Faces.Any(f => f.BBox != null && IoU(BBoxFromRect(r), f.BBox) > 0.25))
-                        continue;
-                    if (scene.Entities.Any(e => e.Category == "Human" && IoU(BBoxFromRect(r), e.BBox) > 0.35))
-                        continue;
-
-                    var bb = BBoxFromRect(r);
-                    scene.Entities.Add(new SceneEntity
-                    {
-                        Category = "Human",
-                        Label = "person_fullbody",
-                        Confidence = 0.55,
-                        BBox = bb,
-                        Source = "fullbody"
-                    });
-                    Cv2.Rectangle(processedFrameBgr, r, new Scalar(0, 200, 255), 2);
-                    Cv2.PutText(processedFrameBgr, "person?",
-                        new Point(r.X, Math.Max(12, r.Y - 6)),
-                        HersheyFonts.HersheySimplex, 0.45, new Scalar(0, 200, 255), 1);
-                }
-            }
-            catch
-            {
-                /* ignore */
-            }
-        }
-
-        private void AddCatsFromCascade(Mat grayFrame, DetectionData detectionData, SceneAnalysisResult scene, SceneProcessingOptions opts)
-        {
-            if (_catFaceCascade == null || _catFaceCascade.Empty())
-                return;
-            if (scene.Entities.Any(e => e.Label == "cat" && e.Source == "ssd"))
-                return;
-
-            try
-            {
-                // Tightened thresholds to reduce false positives on non-cat scenes.
-                var catMinNeighbors = Math.Clamp(opts.CatMinNeighbors, 1, 16);
-                var catMinAreaRatio = Math.Clamp(opts.CatMinAreaRatio, 0.0005, 0.08);
-                var cats = _catFaceCascade.DetectMultiScale(grayFrame, 1.1, catMinNeighbors, HaarDetectionTypes.ScaleImage, new Size(36, 36));
-                foreach (var r in cats)
-                {
-                    var bb = BBoxFromRect(r);
-                    var aspect = bb.Width <= 0 ? 0 : bb.Height / bb.Width;
-                    if (aspect < 0.65 || aspect > 1.55)
-                        continue;
-                    if ((bb.Width * bb.Height) < (grayFrame.Width * grayFrame.Height * catMinAreaRatio))
-                        continue;
-                    // Ignore boxes mostly overlapping human face/fullbody candidates.
-                    if (scene.Entities.Any(e =>
-                            e.Category == "Human" &&
-                            IoU(e.BBox, bb) > 0.3))
-                    {
-                        continue;
-                    }
-                    if (scene.Entities.Any(e => e.Label == "cat" && IoU(e.BBox, bb) > 0.35))
-                        continue;
-                    scene.Entities.Add(new SceneEntity
-                    {
-                        Category = "Animal",
-                        Label = "cat",
-                        Confidence = 0.5,
-                        BBox = bb,
-                        Source = "cat_cascade"
-                    });
-                    detectionData.Objects.Add(new ObjectDetection
-                    {
-                        Type = "scene:cat",
-                        Confidence = 0.5,
-                        BBox = bb,
-                        AdditionalInfo = "Animal"
-                    });
-                }
-            }
-            catch
-            {
-                /* ignore */
             }
         }
 

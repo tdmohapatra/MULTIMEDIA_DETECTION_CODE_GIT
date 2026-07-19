@@ -30,21 +30,18 @@ namespace STAR_MUTIMEDIA.Services
         private bool _disposed = false;
         private readonly string _sessionProfilesPath;
         private readonly List<MonitoringOption> _availableMonitoringOptions;
-        private readonly CascadeClassifier _faceCascade;
-        private readonly CascadeClassifier _eyeCascade;
-        private readonly CascadeClassifier _leftEarCascade;
-        private readonly CascadeClassifier _rightEarCascade;
-        private readonly CascadeClassifier _handCascade;
-        private readonly CascadeClassifier _smile;
-        private readonly CascadeClassifier _fullbody;
-        private readonly CascadeClassifier _LicencePlate;
-        private readonly CascadeClassifier _catFaceCascade;
-        private Net? _mobileNetSsd;
         private Net? _yoloV8Net;
-        private readonly object _ssdLoadLock = new object();
+        private Net? _yunetFaceNet;
+        private Net? _emotionFerPlusNet;
         private readonly object _yoloLoadLock = new object();
-        private bool _mobileNetSsdLoadFailed;
+        private readonly object _yunetLoadLock = new object();
+        private readonly object _emotionLoadLock = new object();
         private bool _yoloLoadFailed;
+        private bool _yunetLoadFailed;
+        private bool _emotionLoadFailed;
+        private volatile bool _yoloUsesOpenCl;
+        private volatile bool _yunetUsesOpenCl;
+        private volatile bool _emotionUsesOpenCl;
         private readonly List<IDetectionPlugin> _detectionPlugins;
         private readonly string _inferenceProvider;
 
@@ -63,15 +60,6 @@ namespace STAR_MUTIMEDIA.Services
 
             // Initialize cascades with fallback
             var cascadesPath = GetCascadesPath();
-            _faceCascade = LoadCascadeClassifier(ResolveCascadePath(cascadesPath, "haarcascade_frontalface_alt.xml"));
-            _eyeCascade = LoadCascadeClassifier(ResolveCascadePath(cascadesPath, "haarcascade_eye.xml"));
-            _leftEarCascade = LoadCascadeClassifier(ResolveCascadePath(cascadesPath, "haarcascade_mcs_leftear.xml"));
-            _rightEarCascade = LoadCascadeClassifier(ResolveCascadePath(cascadesPath, "haarcascade_mcs_rightear.xml"));
-            _handCascade = LoadCascadeClassifier(ResolveCascadePath(cascadesPath, "haarcascade_upperbody.xml"));
-            _smile = LoadCascadeClassifier(ResolveCascadePath(cascadesPath, "haarcascade_smile.xml"));
-            _fullbody = LoadCascadeClassifier(ResolveCascadePath(cascadesPath, "haarcascade_fullbody.xml"));
-            _catFaceCascade = LoadCascadeClassifier(ResolveCascadePath(cascadesPath, "haarcascade_frontalcatface.xml"));
-            _LicencePlate = LoadCascadeClassifier(ResolveCascadePath(cascadesPath, "haarcascade_license_plate_rus_16stages.xml"));
             _detectionPlugins = new List<IDetectionPlugin>
             {
                 new LowLightDetectionPlugin(),
@@ -81,31 +69,27 @@ namespace STAR_MUTIMEDIA.Services
 
             // Initialize available monitoring options
             _availableMonitoringOptions = InitializeMonitoringOptions();
-            _inferenceProvider = DetermineInferenceProvider();
             WarmupModels();
+            _inferenceProvider = DetermineInferenceProvider();
         }
 
-        private static string DetermineInferenceProvider()
+        // Reflects the backend actually applied to the loaded CvDnn nets after
+        // TryAccelerateWithOpenCl's warmup-forward validation (see SceneAnalysis partial).
+        // OpenCV's DNN module has no DirectML backend, so this no longer probes ORT/DML.
+        private string DetermineInferenceProvider()
         {
-            try
-            {
-                using var opts = new Microsoft.ML.OnnxRuntime.SessionOptions();
-                // Runtime probe for DirectML-capable environment. If provider append fails, fallback to CPU.
-                opts.AppendExecutionProvider_DML(0);
-                return "directml";
-            }
-            catch
-            {
-                return "cpu";
-            }
+            if (_yoloUsesOpenCl || _yunetUsesOpenCl || _emotionUsesOpenCl)
+                return "opencl";
+            return "cpu";
         }
 
         private void WarmupModels()
         {
             try
             {
-                _ = GetOrLoadMobileNetSsd();
                 _ = GetOrLoadYoloV8();
+                _ = GetOrLoadYuNetFace();
+                _ = GetOrLoadEmotionFerPlus();
             }
             catch
             {
@@ -334,7 +318,8 @@ namespace STAR_MUTIMEDIA.Services
                                 logs,
                                 detectionData,
                                 frameData.ProcessingMode ?? "standard",
-                                frameData.SceneOptions);
+                                frameData.SceneOptions,
+                                frameData.ClientHands);
                             detectionStopwatch.Stop();
                             stageTimings.DetectionMs = detectionStopwatch.Elapsed.TotalMilliseconds;
 
@@ -1053,7 +1038,8 @@ namespace STAR_MUTIMEDIA.Services
         }
 
         private Mat ProcessFrame(Mat frame, SessionData session, List<DetectionNotification> notifications,
-            List<SystemLog> logs, DetectionData detectionData, string processingMode, SceneProcessingOptions? sceneOptions = null)
+            List<SystemLog> logs, DetectionData detectionData, string processingMode, SceneProcessingOptions? sceneOptions = null,
+            List<ClientHandData> clientHands = null)
         {
             if (frame.Empty())
             {
@@ -1110,7 +1096,7 @@ namespace STAR_MUTIMEDIA.Services
                     if (IsMonitoringEnabled(config, "HandDetection") && runHeavy)
                     {
                         var handStart = Stopwatch.StartNew();
-                        SafeHandDetection(processedFrame, grayFrame, session, stats, notifications, logs, detectionData);
+                        SafeHandDetection(processedFrame, session, stats, notifications, logs, detectionData, clientHands);
                         handStart.Stop();
                         session.AddModuleTiming(session.HandModuleMs, handStart.Elapsed.TotalMilliseconds);
                     }
@@ -1285,11 +1271,12 @@ namespace STAR_MUTIMEDIA.Services
         {
             try
             {
-                if (_faceCascade == null || _faceCascade.Empty())
+                var yunetNet = GetOrLoadYuNetFace();
+                if (yunetNet == null)
                 {
                     logs.Add(new SystemLog
                     {
-                        Message = "Face cascade classifier not available",
+                        Message = "YuNet face detector not available",
                         Timestamp = DateTime.UtcNow,
                         Level = "Warning",
                         Component = "FaceDetection"
@@ -1297,68 +1284,51 @@ namespace STAR_MUTIMEDIA.Services
                     return;
                 }
 
-                var faces = _faceCascade.DetectMultiScale(
-                    grayFrame,
-                    1.1,
-                    5,
-                    HaarDetectionTypes.ScaleImage,
-                    new Size(30, 30)
-                );
-                var filteredFaces = FilterOverlappingRects(faces, 0.35)
-                    .OrderByDescending(r => r.Width * r.Height)
-                    .ToList();
+                var scoreThreshold = (float)Math.Clamp(session.Settings.FaceConfidenceThreshold, 0.1, 0.95);
+                var faces = YuNetDecoder.Detect(yunetNet, processedFrame, scoreThreshold, 0.3f);
 
-                stats.FacesDetected = filteredFaces.Count;
                 detectionData.Faces.Clear();
-                detectionData.Ears.Clear();
+                detectionData.Eyes.Clear();
 
-                foreach (var face in filteredFaces)
+                foreach (var face in faces)
                 {
-                    var faceArea = face.Width * face.Height;
-                    var frameArea = Math.Max(1, grayFrame.Width * grayFrame.Height);
-                    var areaScore = Math.Clamp((double)faceArea / frameArea * 25.0, 0.0, 1.0);
-                    var stabilityScore = Math.Clamp(session.Stats.CameraStability / 100.0, 0.0, 1.0);
-                    var faceConfidence = Math.Clamp(0.40 + 0.35 * areaScore + 0.25 * stabilityScore, 0.05, 0.99);
-                    if (faceConfidence < session.Settings.FaceConfidenceThreshold)
-                    {
+                    var faceRect = face.BBox.Intersect(new Rect(0, 0, processedFrame.Width, processedFrame.Height));
+                    if (faceRect.Width < 4 || faceRect.Height < 4)
                         continue;
-                    }
 
-                    // Draw face rectangle
-                    Cv2.Rectangle(processedFrame, face, Scalar.Red, 2);
+                    Cv2.Rectangle(processedFrame, faceRect, Scalar.Red, 2);
                     Cv2.PutText(processedFrame, "Face",
-                        new Point(face.X, face.Y - 10),
+                        new Point(faceRect.X, faceRect.Y - 10),
                         HersheyFonts.HersheySimplex, 0.5, Scalar.Red, 1);
 
-                    // Add to detection data
-                    var faceExpression = AnalyzeFaceEmotion(grayFrame, face, session);
+                    var faceExpression = AnalyzeFaceEmotion(processedFrame, faceRect);
                     detectionData.Faces.Add(new FaceDetection
                     {
                         BBox = new BoundingBox
                         {
-                            X = face.X,
-                            Y = face.Y,
-                            Width = face.Width,
-                            Height = face.Height
+                            X = faceRect.X,
+                            Y = faceRect.Y,
+                            Width = faceRect.Width,
+                            Height = faceRect.Height
                         },
-                        Confidence = faceConfidence,
+                        Confidence = face.Score,
                         Expression = faceExpression,
                         TrackId = detectionData.Faces.Count
                     });
 
-                    // Safe eye detection
-                    if (IsMonitoringEnabled(session.MonitoringConfig, "EyeDetection"))
+                    if (IsMonitoringEnabled(session.MonitoringConfig, "EyeDetection") && face.Landmarks?.Length >= 2)
                     {
-                        SafeEyeDetection(processedFrame, grayFrame, face, stats, detectionData);
+                        AddEyesFromLandmarks(processedFrame, faceRect, face.Landmarks, detectionData);
                     }
 
-                    SafeEarDetection(processedFrame, grayFrame, face, detectionData);
-
-                    SafeLipsDetection(processedFrame, grayFrame, face, detectionData);
+                    if (face.Landmarks?.Length >= 5)
+                    {
+                        AddLipsFromLandmarks(processedFrame, faceRect, face.Landmarks, detectionData);
+                    }
                 }
 
                 stats.FacesDetected = detectionData.Faces.Count;
-                stats.EarsDetected = detectionData.Ears.Count;
+                stats.EyesDetected = detectionData.Eyes.Count;
 
                 if (detectionData.Faces.Count > 0 && !session.LastFaceState)
                 {
@@ -1385,273 +1355,182 @@ namespace STAR_MUTIMEDIA.Services
             }
         }
 
-        private void SafeEyeDetection(Mat processedFrame, Mat grayFrame, Rect face,
-            DetectionStats stats, DetectionData detectionData)
+        /// <summary>
+        /// Derives eye boxes/gaze from YuNet's two eye landmark points (right eye, left eye).
+        /// YuNet gives a point, not an eye contour, so there is no aspect-ratio signal to detect
+        /// blinks from — State is reported as "Open" rather than fabricating a closed/open guess.
+        /// </summary>
+        private void AddEyesFromLandmarks(Mat processedFrame, Rect faceRect, System.Drawing.PointF[] landmarks, DetectionData detectionData)
         {
-            try
+            var eyeSize = Math.Max(6, (int)(faceRect.Width * 0.16));
+            var frameBounds = new Rect(0, 0, processedFrame.Width, processedFrame.Height);
+
+            void AddEye(System.Drawing.PointF point)
             {
-                if (_eyeCascade == null || _eyeCascade.Empty())
+                var eyeRect = new Rect(
+                    (int)Math.Round(point.X - eyeSize / 2.0),
+                    (int)Math.Round(point.Y - eyeSize / 2.0),
+                    eyeSize,
+                    eyeSize).Intersect(frameBounds);
+                if (eyeRect.Width < 2 || eyeRect.Height < 2)
                     return;
 
-                var faceROI = grayFrame[face];
-                var eyes = _eyeCascade.DetectMultiScale(faceROI);
-                stats.EyesDetected = eyes.Length;
-
-                foreach (var eye in eyes)
+                var faceCenterX = faceRect.X + faceRect.Width / 2.0;
+                var faceCenterY = faceRect.Y + faceRect.Height / 2.0;
+                var normalizedOffsetX = (point.X - faceCenterX) / Math.Max(1, faceRect.Width);
+                var normalizedOffsetY = (point.Y - faceCenterY) / Math.Max(1, faceRect.Height);
+                var gaze = normalizedOffsetX switch
                 {
-                    var eyeRect = new Rect(face.X + eye.X, face.Y + eye.Y, eye.Width, eye.Height);
-                    var eyeCenterX = eyeRect.X + (eyeRect.Width / 2.0);
-                    var eyeCenterY = eyeRect.Y + (eyeRect.Height / 2.0);
-                    var faceCenterX = face.X + (face.Width / 2.0);
-                    var faceCenterY = face.Y + (face.Height / 2.0);
-                    var normalizedOffsetX = (eyeCenterX - faceCenterX) / Math.Max(1, face.Width);
-                    var normalizedOffsetY = (eyeCenterY - faceCenterY) / Math.Max(1, face.Height);
-                    var gaze = normalizedOffsetX switch
+                    < -0.15 => GazeDirection.Left,
+                    > 0.15 => GazeDirection.Right,
+                    _ => GazeDirection.Center
+                };
+                if (gaze == GazeDirection.Center)
+                {
+                    gaze = normalizedOffsetY switch
                     {
-                        < -0.15 => GazeDirection.Left,
-                        > 0.15 => GazeDirection.Right,
+                        < -0.10 => GazeDirection.Up,
+                        > 0.10 => GazeDirection.Down,
                         _ => GazeDirection.Center
                     };
-                    if (gaze == GazeDirection.Center)
-                    {
-                        gaze = normalizedOffsetY switch
-                        {
-                            < -0.10 => GazeDirection.Up,
-                            > 0.10 => GazeDirection.Down,
-                            _ => GazeDirection.Center
-                        };
-                    }
-                    var eyeAspectRatio = eyeRect.Height / (double)Math.Max(1, eyeRect.Width);
-                    var eyeState = eyeAspectRatio < 0.28 ? "Closed" : "Open";
-
-                    Cv2.Rectangle(processedFrame, eyeRect, Scalar.Blue, 1);
-                    Cv2.PutText(processedFrame, "Eye",
-                        new Point(face.X + eye.X, face.Y + eye.Y - 5),
-                        HersheyFonts.HersheySimplex, 0.3, Scalar.Blue, 1);
-
-                    detectionData.Eyes.Add(new EyeDetection
-                    {
-                        BBox = new BoundingBox
-                        {
-                            X = face.X + eye.X,
-                            Y = face.Y + eye.Y,
-                            Width = eye.Width,
-                            Height = eye.Height
-                        },
-                        Confidence = 0.75,
-                        State = eyeState,
-                        Gaze = gaze,
-                        TrackId = detectionData.Eyes.Count
-                    });
                 }
+
+                Cv2.Rectangle(processedFrame, eyeRect, Scalar.Blue, 1);
+                Cv2.PutText(processedFrame, "Eye",
+                    new Point(eyeRect.X, eyeRect.Y - 5),
+                    HersheyFonts.HersheySimplex, 0.3, Scalar.Blue, 1);
+
+                detectionData.Eyes.Add(new EyeDetection
+                {
+                    BBox = new BoundingBox { X = eyeRect.X, Y = eyeRect.Y, Width = eyeRect.Width, Height = eyeRect.Height },
+                    Confidence = 0.75,
+                    State = "Open",
+                    Gaze = gaze,
+                    TrackId = detectionData.Eyes.Count
+                });
             }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Eye detection error: {ex.Message}");
-            }
+
+            AddEye(landmarks[0]);
+            AddEye(landmarks[1]);
         }
 
-        private void SafeEarDetection(Mat processedFrame, Mat grayFrame, Rect face, DetectionData detectionData)
+        /// <summary>
+        /// Builds a "Lips" object box from YuNet's two mouth-corner landmarks (index 3 = right
+        /// corner, 4 = left corner). Two points give zero height on their own, so pad vertically
+        /// by a fraction of face height to get a usable mouth region — same rough sizing the old
+        /// Haar mouth-region crop used, just centered on real landmark points instead of a guess.
+        /// </summary>
+        private void AddLipsFromLandmarks(Mat processedFrame, Rect faceRect, System.Drawing.PointF[] landmarks, DetectionData detectionData)
         {
-            if ((_leftEarCascade == null || _leftEarCascade.Empty()) &&
-                (_rightEarCascade == null || _rightEarCascade.Empty()))
-            {
+            var rightCorner = landmarks[3];
+            var leftCorner = landmarks[4];
+
+            var minX = Math.Min(rightCorner.X, leftCorner.X);
+            var maxX = Math.Max(rightCorner.X, leftCorner.X);
+            var centerY = (rightCorner.Y + leftCorner.Y) / 2.0;
+            var padX = Math.Max(4, (maxX - minX) * 0.25);
+            var halfHeight = Math.Max(4, faceRect.Height * 0.09);
+
+            var mouthRect = new Rect(
+                (int)Math.Round(minX - padX),
+                (int)Math.Round(centerY - halfHeight),
+                (int)Math.Round((maxX - minX) + 2 * padX),
+                (int)Math.Round(halfHeight * 2)
+            ).Intersect(new Rect(0, 0, processedFrame.Width, processedFrame.Height));
+            if (mouthRect.Width < 4 || mouthRect.Height < 4)
                 return;
-            }
 
-            try
+            Cv2.Rectangle(processedFrame, mouthRect, Scalar.Magenta, 1);
+            Cv2.PutText(processedFrame, "Lips",
+                new Point(mouthRect.X, mouthRect.Y - 4),
+                HersheyFonts.HersheySimplex, 0.35, Scalar.Magenta, 1);
+
+            detectionData.Objects.Add(new ObjectDetection
             {
-                var faceROI = grayFrame[face];
-                var earMin = new Size(18, 18);
-
-                void TryAdd(CascadeClassifier cascade, string side, Scalar color)
+                Type = "Lips",
+                Confidence = 0.75,
+                AdditionalInfo = "Mouth region",
+                BBox = new BoundingBox
                 {
-                    if (cascade == null || cascade.Empty())
-                    {
-                        return;
-                    }
-
-                    var ears = cascade.DetectMultiScale(
-                        faceROI,
-                        1.1,
-                        5,
-                        HaarDetectionTypes.ScaleImage,
-                        earMin);
-
-                    foreach (var ear in ears)
-                    {
-                        var earRect = new Rect(face.X + ear.X, face.Y + ear.Y, ear.Width, ear.Height);
-                        Cv2.Rectangle(processedFrame, earRect, color, 1);
-                        Cv2.PutText(
-                            processedFrame,
-                            side == "Left" ? "EarL" : "EarR",
-                            new Point(earRect.X, earRect.Y - 4),
-                            HersheyFonts.HersheySimplex,
-                            0.35,
-                            color,
-                            1);
-
-                        detectionData.Ears.Add(new EarDetection
-                        {
-                            BBox = new BoundingBox
-                            {
-                                X = earRect.X,
-                                Y = earRect.Y,
-                                Width = earRect.Width,
-                                Height = earRect.Height
-                            },
-                            Confidence = 0.68,
-                            Side = side,
-                            TrackId = detectionData.Ears.Count
-                        });
-                    }
+                    X = mouthRect.X,
+                    Y = mouthRect.Y,
+                    Width = mouthRect.Width,
+                    Height = mouthRect.Height
                 }
-
-                TryAdd(_leftEarCascade, "Left", new Scalar(255, 0, 255));
-                TryAdd(_rightEarCascade, "Right", new Scalar(0, 255, 255));
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Ear detection error: {ex.Message}");
-            }
+            });
         }
 
-        private void SafeLipsDetection(Mat processedFrame, Mat grayFrame, Rect face, DetectionData detectionData)
+        /// <summary>
+        /// Hands are detected client-side by the browser's real MediaPipe Hands solution (see
+        /// hands.js) and sent up as normalized landmarks — there is no server-side hand model.
+        /// This used to run a Haar upperbody cascade as a hand proxy and fabricate a 21-point
+        /// skeleton from the bounding box; that was never real hand tracking, just a shaped guess.
+        /// </summary>
+        private void SafeHandDetection(Mat processedFrame, SessionData session, DetectionStats stats,
+            List<DetectionNotification> notifications, List<SystemLog> logs, DetectionData detectionData,
+            List<ClientHandData> clientHands)
         {
             try
             {
-                if (_smile == null || _smile.Empty())
-                {
-                    return;
-                }
-
-                var mouthRegion = new Rect(
-                    face.X,
-                    face.Y + (int)(face.Height * 0.45),
-                    face.Width,
-                    (int)(face.Height * 0.50));
-                mouthRegion = mouthRegion.Intersect(new Rect(0, 0, grayFrame.Width, grayFrame.Height));
-                if (mouthRegion.Width < 8 || mouthRegion.Height < 8)
-                {
-                    return;
-                }
-
-                using (var mouthRoi = grayFrame[mouthRegion])
-                {
-                    var mouths = _smile.DetectMultiScale(
-                        mouthRoi,
-                        1.2,
-                        12,
-                        HaarDetectionTypes.ScaleImage,
-                        new Size(15, 10));
-                    if (mouths.Length == 0)
-                    {
-                        return;
-                    }
-
-                    var mouth = mouths.OrderByDescending(m => m.Width * m.Height).First();
-                    var mouthRect = new Rect(
-                        mouthRegion.X + mouth.X,
-                        mouthRegion.Y + mouth.Y,
-                        mouth.Width,
-                        mouth.Height);
-
-                    Cv2.Rectangle(processedFrame, mouthRect, Scalar.Magenta, 1);
-                    Cv2.PutText(processedFrame, "Lips",
-                        new Point(mouthRect.X, mouthRect.Y - 4),
-                        HersheyFonts.HersheySimplex, 0.35, Scalar.Magenta, 1);
-
-                    detectionData.Objects.Add(new ObjectDetection
-                    {
-                        Type = "Lips",
-                        Confidence = 0.72,
-                        AdditionalInfo = "Mouth region",
-                        BBox = new BoundingBox
-                        {
-                            X = mouthRect.X,
-                            Y = mouthRect.Y,
-                            Width = mouthRect.Width,
-                            Height = mouthRect.Height
-                        }
-                    });
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Lips detection error: {ex.Message}");
-            }
-        }
-
-        private void SafeHandDetection(Mat processedFrame, Mat grayFrame, SessionData session, DetectionStats stats,
-            List<DetectionNotification> notifications, List<SystemLog> logs, DetectionData detectionData)
-        {
-            try
-            {
-                if (_handCascade == null || _handCascade.Empty())
-                {
-                    logs.Add(new SystemLog
-                    {
-                        Message = "Hand cascade classifier not available",
-                        Timestamp = DateTime.UtcNow,
-                        Level = "Warning",
-                        Component = "HandDetection"
-                    });
-                    return;
-                }
-
-                var hands = _handCascade.DetectMultiScale(
-                    grayFrame,
-                    1.1,
-                    3,
-                    HaarDetectionTypes.ScaleImage,
-                    new Size(30, 30)
-                );
-                var filteredHands = FilterOverlappingRects(hands, 0.40);
-                stats.HandsDetected = filteredHands.Count;
                 detectionData.Hands.Clear();
-                var selectedHands = filteredHands
-                    .OrderByDescending(h => h.Width * h.Height)
-                    .Take(Math.Max(1, session.Settings.HandOnDemandOnly ? 1 : session.Settings.MaxTrackedHands))
-                    .ToList();
-
-                foreach (var hand in selectedHands)
+                if (clientHands == null || clientHands.Count == 0)
                 {
-                    var handArea = hand.Width * hand.Height;
-                    var frameArea = Math.Max(1, grayFrame.Width * grayFrame.Height);
-                    var areaScore = Math.Clamp((double)handArea / frameArea * 35.0, 0.0, 1.0);
-                    var aspectRatio = hand.Width / (double)Math.Max(1, hand.Height);
-                    var shapeScore = 1.0 - Math.Min(1.0, Math.Abs(1.0 - aspectRatio));
-                    var handConfidence = Math.Clamp(0.35 + 0.40 * areaScore + 0.25 * shapeScore, 0.05, 0.99);
-                    if (handConfidence < session.Settings.HandConfidenceThreshold)
-                    {
-                        continue;
-                    }
+                    stats.HandsDetected = 0;
+                    return;
+                }
 
-                    Cv2.Rectangle(processedFrame, hand, Scalar.Green, 2);
+                var frameWidth = processedFrame.Width;
+                var frameHeight = processedFrame.Height;
+                var maxHands = Math.Max(1, session.Settings.HandOnDemandOnly ? 1 : session.Settings.MaxTrackedHands);
+
+                foreach (var hand in clientHands.Take(maxHands))
+                {
+                    if (hand?.Landmarks == null || hand.Landmarks.Count == 0)
+                        continue;
+                    if (hand.Score < session.Settings.HandConfidenceThreshold)
+                        continue;
+
+                    var pixelLandmarks = hand.Landmarks.Select(p => new LandmarkPoint
+                    {
+                        X = p.X * frameWidth,
+                        Y = p.Y * frameHeight,
+                        Z = p.Z,
+                        Confidence = hand.Score,
+                        Type = p.Type
+                    }).ToList();
+
+                    var minX = pixelLandmarks.Min(p => p.X);
+                    var maxX = pixelLandmarks.Max(p => p.X);
+                    var minY = pixelLandmarks.Min(p => p.Y);
+                    var maxY = pixelLandmarks.Max(p => p.Y);
+                    var bbox = new BoundingBox
+                    {
+                        X = minX,
+                        Y = minY,
+                        Width = Math.Max(1, maxX - minX),
+                        Height = Math.Max(1, maxY - minY)
+                    };
+
+                    var rect = new Rect((int)bbox.X, (int)bbox.Y, (int)bbox.Width, (int)bbox.Height)
+                        .Intersect(new Rect(0, 0, frameWidth, frameHeight));
+                    if (rect.Width < 2 || rect.Height < 2)
+                        continue;
+
+                    Cv2.Rectangle(processedFrame, rect, Scalar.Green, 2);
                     Cv2.PutText(processedFrame, "Hand",
-                        new Point(hand.X, hand.Y - 10),
+                        new Point(rect.X, rect.Y - 10),
                         HersheyFonts.HersheySimplex, 0.5, Scalar.Green, 1);
 
                     var handDetection = new HandDetection
                     {
-                        BBox = new BoundingBox
-                        {
-                            X = hand.X,
-                            Y = hand.Y,
-                            Width = hand.Width,
-                            Height = hand.Height
-                        },
-                        Confidence = handConfidence,
-                        Handedness = hand.X + (hand.Width / 2.0) < grayFrame.Width / 2.0 ? "Left" : "Right",
+                        BBox = bbox,
+                        Confidence = hand.Score,
+                        Handedness = hand.Handedness ?? "Unknown",
+                        Landmarks = pixelLandmarks,
                         TrackId = detectionData.Hands.Count
                     };
-                    handDetection.Landmarks = BuildHandSkeletonLandmarks(hand, handDetection.Handedness);
-                    handDetection.Gesture = InferGestureWithModel(handDetection, session.Settings.EnableModelEnhancedPipeline);
-                    if (handDetection.Gesture != null && handDetection.Landmarks.Count > 0)
-                    {
-                        handDetection.Landmarks = BuildGestureLandmarks(handDetection.Landmarks, handDetection.Gesture.Type, handDetection.Handedness);
-                    }
-                    if (handDetection.Gesture != null && handDetection.Gesture.KeyPoints.Count == 0 && handDetection.Landmarks.Count > 0)
+                    handDetection.Gesture = InferGestureWithModel(handDetection, useEnhancedPipeline: true);
+                    if (handDetection.Gesture != null && handDetection.Gesture.KeyPoints.Count == 0)
                     {
                         handDetection.Gesture.KeyPoints = new List<LandmarkPoint>(handDetection.Landmarks);
                     }
@@ -1696,171 +1575,6 @@ namespace STAR_MUTIMEDIA.Services
                 Cv2.CvtColor(frame, gray, ColorConversionCodes.BGR2GRAY);
                 return Cv2.Mean(gray).Val0;
             }
-        }
-
-        private static List<Rect> FilterOverlappingRects(IEnumerable<Rect> candidates, double iouThreshold)
-        {
-            var ordered = candidates
-                .OrderByDescending(r => r.Width * r.Height)
-                .ToList();
-            var selected = new List<Rect>();
-
-            foreach (var rect in ordered)
-            {
-                var overlaps = selected.Any(existing => CalculateIoU(existing, rect) >= iouThreshold);
-                if (!overlaps)
-                {
-                    selected.Add(rect);
-                }
-            }
-
-            return selected;
-        }
-
-        private static double CalculateIoU(Rect a, Rect b)
-        {
-            var x1 = Math.Max(a.Left, b.Left);
-            var y1 = Math.Max(a.Top, b.Top);
-            var x2 = Math.Min(a.Right, b.Right);
-            var y2 = Math.Min(a.Bottom, b.Bottom);
-            var intersectionWidth = Math.Max(0, x2 - x1);
-            var intersectionHeight = Math.Max(0, y2 - y1);
-            var intersection = intersectionWidth * intersectionHeight;
-            if (intersection <= 0)
-            {
-                return 0.0;
-            }
-
-            var union = (a.Width * a.Height) + (b.Width * b.Height) - intersection;
-            return union <= 0 ? 0.0 : (double)intersection / union;
-        }
-
-        private static List<LandmarkPoint> BuildHandSkeletonLandmarks(Rect box, string handedness)
-        {
-            _ = box;
-            var points = new List<LandmarkPoint>(21);
-            var isLeft = string.Equals(handedness, "Left", StringComparison.OrdinalIgnoreCase);
-
-            LandmarkPoint P(double x, double y, string type, double z = 0.0, double confidence = 0.82)
-            {
-                return new LandmarkPoint
-                {
-                    X = Math.Clamp(x, 0.0, 1.0),
-                    Y = Math.Clamp(y, 0.0, 1.0),
-                    Z = z,
-                    Confidence = confidence,
-                    Type = type
-                };
-            }
-
-            var thumbBaseX = isLeft ? 0.33 : 0.67;
-            var thumbDir = isLeft ? -1.0 : 1.0;
-
-            // Wrist (0)
-            points.Add(P(0.5, 0.92, "wrist", 0.0, 0.9));
-
-            // Thumb (1-4)
-            points.Add(P(thumbBaseX, 0.82, "thumb_cmc", -0.02));
-            points.Add(P(thumbBaseX + (0.08 * thumbDir), 0.72, "thumb_mcp", -0.03));
-            points.Add(P(thumbBaseX + (0.14 * thumbDir), 0.64, "thumb_ip", -0.03));
-            points.Add(P(thumbBaseX + (0.20 * thumbDir), 0.56, "thumb_tip", -0.02, 0.88));
-
-            // Index (5-8)
-            points.Add(P(0.36, 0.74, "index_mcp", -0.01));
-            points.Add(P(0.34, 0.59, "index_pip", -0.02));
-            points.Add(P(0.33, 0.45, "index_dip", -0.03));
-            points.Add(P(0.32, 0.30, "index_tip", -0.03, 0.9));
-
-            // Middle (9-12)
-            points.Add(P(0.50, 0.72, "middle_mcp", -0.01));
-            points.Add(P(0.50, 0.54, "middle_pip", -0.02));
-            points.Add(P(0.50, 0.37, "middle_dip", -0.03));
-            points.Add(P(0.50, 0.20, "middle_tip", -0.03, 0.9));
-
-            // Ring (13-16)
-            points.Add(P(0.63, 0.75, "ring_mcp", -0.01));
-            points.Add(P(0.65, 0.60, "ring_pip", -0.02));
-            points.Add(P(0.66, 0.47, "ring_dip", -0.03));
-            points.Add(P(0.67, 0.34, "ring_tip", -0.03, 0.88));
-
-            // Pinky (17-20)
-            points.Add(P(0.75, 0.79, "pinky_mcp", 0.0));
-            points.Add(P(0.79, 0.67, "pinky_pip", -0.01));
-            points.Add(P(0.82, 0.57, "pinky_dip", -0.02));
-            points.Add(P(0.85, 0.47, "pinky_tip", -0.02, 0.86));
-
-            return points;
-        }
-
-        private static List<LandmarkPoint> BuildGestureLandmarks(List<LandmarkPoint> source, string gestureType, string handedness)
-        {
-            var points = source
-                .Select(p => new LandmarkPoint
-                {
-                    X = p.X,
-                    Y = p.Y,
-                    Z = p.Z,
-                    Confidence = p.Confidence,
-                    Type = p.Type
-                })
-                .ToList();
-
-            if (points.Count < 21)
-            {
-                return points;
-            }
-
-            var type = (gestureType ?? string.Empty).Trim().ToLowerInvariant();
-            var isLeft = string.Equals(handedness, "Left", StringComparison.OrdinalIgnoreCase);
-
-            void CurlFinger(int tip, int dip, int pip, int mcp, double amount = 0.62)
-            {
-                var baseX = points[mcp].X;
-                var baseY = points[mcp].Y;
-                var pipX = points[pip].X;
-                var pipY = points[pip].Y;
-
-                points[dip].X = baseX + (pipX - baseX) * (1.0 - amount * 0.45);
-                points[dip].Y = baseY + (pipY - baseY) * (1.0 - amount * 0.35);
-                points[tip].X = baseX + (pipX - baseX) * (1.0 - amount);
-                points[tip].Y = baseY + (pipY - baseY) * (1.0 - amount * 0.85);
-            }
-
-            void ExtendFinger(int tip, int dip, int pip, int mcp, double extendY = 0.18)
-            {
-                var baseX = points[mcp].X;
-                points[pip].Y = Math.Min(points[pip].Y, points[mcp].Y - (extendY * 0.45));
-                points[dip].Y = Math.Min(points[dip].Y, points[pip].Y - (extendY * 0.35));
-                points[tip].Y = Math.Min(points[tip].Y, points[dip].Y - (extendY * 0.30));
-                points[tip].X = baseX + (points[tip].X - baseX) * 0.92;
-            }
-
-            switch (type)
-            {
-                case "fist":
-                    CurlFinger(8, 7, 6, 5);
-                    CurlFinger(12, 11, 10, 9);
-                    CurlFinger(16, 15, 14, 13);
-                    CurlFinger(20, 19, 18, 17);
-                    points[4].X = points[3].X + (isLeft ? 0.015 : -0.015);
-                    points[4].Y = Math.Max(points[3].Y, points[3].Y + 0.04);
-                    break;
-                case "pointing":
-                    ExtendFinger(8, 7, 6, 5, 0.22);
-                    CurlFinger(12, 11, 10, 9, 0.70);
-                    CurlFinger(16, 15, 14, 13, 0.72);
-                    CurlFinger(20, 19, 18, 17, 0.72);
-                    points[4].X = points[3].X + (isLeft ? -0.012 : 0.012);
-                    points[4].Y = points[3].Y - 0.03;
-                    break;
-                case "raisedhand":
-                case "openpalm":
-                default:
-                    // Keep open-hand structure from base skeleton.
-                    break;
-            }
-
-            return points;
         }
 
         private void SafeMovementDetection(Mat currentFrame, Mat processedFrame, SessionData session,
@@ -2311,13 +2025,11 @@ namespace STAR_MUTIMEDIA.Services
                 ActiveSessions = _sessions.Count,
                 LastScenePipeline = session?.LastSceneAnalysis?.Pipeline ?? "unknown",
                 LastSceneFrameMs = session?.LastSceneAnalysis?.FrameProcessingMs ?? 0,
-                FaceCascadeReady = status?.FaceCascadeReady ?? (_faceCascade != null && !_faceCascade.Empty()),
-                EyeCascadeReady = _eyeCascade != null && !_eyeCascade.Empty(),
-                HandCascadeReady = _handCascade != null && !_handCascade.Empty(),
-                FullBodyCascadeReady = status?.FullBodyReady ?? (_fullbody != null && !_fullbody.Empty()),
-                CatCascadeReady = status?.CatCascadeReady ?? (_catFaceCascade != null && !_catFaceCascade.Empty()),
-                SsdLoaded = status?.SsdLoaded ?? (_mobileNetSsd != null),
-                SsdLoadFailed = _mobileNetSsdLoadFailed
+                FaceCascadeReady = status?.FaceCascadeReady ?? (_yunetFaceNet != null),
+                EyeCascadeReady = _yunetFaceNet != null,
+                HandCascadeReady = true,
+                SsdLoaded = status?.SsdLoaded ?? (_yoloV8Net != null),
+                SsdLoadFailed = _yoloLoadFailed
             };
         }
 
@@ -2332,7 +2044,7 @@ namespace STAR_MUTIMEDIA.Services
                 {
                     AvgMs = avg,
                     LastMs = arr.Last(),
-                    Fps = avg > 0 ? 1000.0 / avg : 0
+                    Fps = avg > 0 ? Math.Min(1000.0 / avg, 999.0) : 0
                 };
             }
 
@@ -2345,7 +2057,7 @@ namespace STAR_MUTIMEDIA.Services
                     ActiveSessions = _sessions.Count,
                     Health = GetDetectorHealth(null),
                     InferenceProvider = "cpu",
-                    SceneModelBackend = "ssd"
+                    SceneModelBackend = "yolo"
                 };
             }
 
@@ -2380,7 +2092,7 @@ namespace STAR_MUTIMEDIA.Services
                 },
                 RecentEvents = session?.RecentEvents?.ToList() ?? new List<IntelligenceEvent>(),
                 InferenceProvider = session?.InferenceProvider ?? "cpu",
-                SceneModelBackend = session?.Settings?.SceneModelBackend ?? "ssd"
+                SceneModelBackend = session?.Settings?.SceneModelBackend ?? "yolo"
             };
         }
 
@@ -2783,52 +2495,54 @@ namespace STAR_MUTIMEDIA.Services
             public DateTime UpdatedAt { get; set; }
         }
 
-        private FaceExpression AnalyzeFaceEmotion(Mat grayFrame, Rect faceRect, SessionData session)
+        private static readonly string[] FerPlusEmotionLabels =
+        {
+            "neutral", "happiness", "surprise", "sadness", "anger", "disgust", "fear", "contempt"
+        };
+
+        /// <summary>
+        /// Real 8-class emotion classification via the FER+ ONNX model (CNTK export, raw logit
+        /// output, softmax applied here). Replaces the old Haar smile/eye-count heuristic that
+        /// used to stand in for "emotion" — smile is now just whatever "happiness" comes out to.
+        /// </summary>
+        private FaceExpression AnalyzeFaceEmotion(Mat bgrFrame, Rect faceRect)
         {
             var expression = new FaceExpression
             {
-                DominantEmotion = "Neutral",
-                Confidence = 0.65,
-                Emotions = new Dictionary<string, double>
-                {
-                    { "happy", 0.15 },
-                    { "sad", 0.10 },
-                    { "angry", 0.05 },
-                    { "surprised", 0.10 },
-                    { "neutral", 0.60 }
-                }
+                DominantEmotion = "neutral",
+                Confidence = 0.6,
+                Emotions = FerPlusEmotionLabels.ToDictionary(l => l, l => l == "neutral" ? 0.6 : 0.4 / 7.0)
             };
 
-            if (_smile == null || _smile.Empty())
-            {
+            var emotionNet = GetOrLoadEmotionFerPlus();
+            if (emotionNet == null)
                 return expression;
-            }
 
             try
             {
-                using (var faceRegion = grayFrame[faceRect])
-                {
-                    var eyes = _eyeCascade?.DetectMultiScale(faceRegion, 1.1, 4, HaarDetectionTypes.ScaleImage, new Size(10, 10))
-                               ?? Array.Empty<Rect>();
-                    var smiles = _smile.DetectMultiScale(faceRegion, 1.7, 20);
-                    var smileScore = Math.Clamp(smiles.Length / 2.0, 0.0, 1.0);
-                    var eyesOpenScore = Math.Clamp(eyes.Length / 2.0, 0.0, 1.0);
-                    var stabilityScore = Math.Clamp(session.Stats.CameraStability / 100.0, 0.0, 1.0);
+                using var faceRegion = new Mat(bgrFrame, faceRect);
+                using var gray = new Mat();
+                Cv2.CvtColor(faceRegion, gray, ColorConversionCodes.BGR2GRAY);
+                using var resized = new Mat();
+                Cv2.Resize(gray, resized, new Size(64, 64));
+                using var blob = CvDnn.BlobFromImage(resized);
+                emotionNet.SetInput(blob);
+                using var output = emotionNet.Forward();
 
-                    var logits = new Dictionary<string, double>
-                    {
-                        { "happy", 0.20 + 1.80 * smileScore + 0.20 * eyesOpenScore },
-                        { "neutral", 0.60 + 0.90 * stabilityScore - 0.60 * smileScore },
-                        { "surprised", 0.20 + 0.70 * eyesOpenScore + 0.30 * (1.0 - stabilityScore) },
-                        { "sad", 0.10 + 0.50 * (1.0 - eyesOpenScore) + 0.30 * (1.0 - smileScore) },
-                        { "angry", 0.05 + 0.35 * (1.0 - stabilityScore) }
-                    };
-                    var probabilities = Softmax(logits);
+                var logits = new float[FerPlusEmotionLabels.Length];
+                System.Runtime.InteropServices.Marshal.Copy(output.Data, logits, 0, logits.Length);
 
-                    expression.Emotions = probabilities;
-                    expression.DominantEmotion = probabilities.OrderByDescending(kv => kv.Value).First().Key;
-                    expression.Confidence = probabilities[expression.DominantEmotion];
-                }
+                var maxLogit = logits.Max();
+                var expValues = logits.Select(v => Math.Exp(v - maxLogit)).ToArray();
+                var sum = Math.Max(expValues.Sum(), double.Epsilon);
+
+                var probabilities = new Dictionary<string, double>();
+                for (var i = 0; i < FerPlusEmotionLabels.Length; i++)
+                    probabilities[FerPlusEmotionLabels[i]] = expValues[i] / sum;
+
+                expression.Emotions = probabilities;
+                expression.DominantEmotion = probabilities.OrderByDescending(kv => kv.Value).First().Key;
+                expression.Confidence = probabilities[expression.DominantEmotion];
             }
             catch
             {
@@ -2952,14 +2666,9 @@ namespace STAR_MUTIMEDIA.Services
                 if (disposing)
                 {
                     // Dispose cascade classifiers
-                    _faceCascade?.Dispose();
-                    _eyeCascade?.Dispose();
-                    _leftEarCascade?.Dispose();
-                    _rightEarCascade?.Dispose();
-                    _handCascade?.Dispose();
-                    _catFaceCascade?.Dispose();
-                    _mobileNetSsd?.Dispose();
                     _yoloV8Net?.Dispose();
+                    _yunetFaceNet?.Dispose();
+                    _emotionFerPlusNet?.Dispose();
 
                     // Dispose session resources
                     foreach (var session in _sessions.Values)

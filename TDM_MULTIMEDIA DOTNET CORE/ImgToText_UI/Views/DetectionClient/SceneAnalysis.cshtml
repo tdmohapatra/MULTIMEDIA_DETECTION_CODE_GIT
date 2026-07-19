@@ -641,6 +641,15 @@
         detectionTimeline.length = 0;
         renderTimeline();
     });
+
+    // SPA nav away from this page: stop the camera/session instead of leaving them running.
+    window.__spaTeardown = () => {
+        if (processor.isRunning()) {
+            processor.stop();
+            transport.disconnect();
+            transport.cleanupSession();
+        }
+    };
 })();
 </script>
 }

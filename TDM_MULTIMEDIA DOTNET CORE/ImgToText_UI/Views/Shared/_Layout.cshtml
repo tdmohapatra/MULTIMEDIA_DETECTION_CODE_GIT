@@ -50,7 +50,7 @@
         </nav>
     </header>
     <div class="container py-3 pb-5">
-        <main role="main">
+        <main role="main" id="spa-content">
             @RenderBody()
         </main>
     </div>
@@ -87,6 +87,7 @@
             }
         })();
     </script>
-    @await RenderSectionAsync("Scripts", required: false)
+    <div id="spa-page-scripts" hidden>@await RenderSectionAsync("Scripts", required: false)</div>
+    <script src="~/js/spa-router.js" asp-append-version="true"></script>
 </body>
 </html>

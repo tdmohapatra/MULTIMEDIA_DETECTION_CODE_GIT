@@ -184,6 +184,7 @@
 </div>
 
 @section Scripts {
+<script src="https://cdn.jsdelivr.net/npm/@@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 <script src="~/js/sceneSharedClient.js"></script>
 <script>
 (() => {
@@ -227,6 +228,35 @@
     let droppedFrames = 0;
     let lastDiagFetchAt = 0;
     let lowFpsStreak = 0;
+    let handsSolution = null;
+    let latestClientHands = [];
+
+    function initHandsSolution() {
+        if (handsSolution || typeof Hands === 'undefined') return;
+        try {
+            handsSolution = new Hands({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@@mediapipe/hands/${file}`
+            });
+            handsSolution.setOptions({
+                maxNumHands: 2,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+            handsSolution.onResults((results) => {
+                latestClientHands = (results.multiHandLandmarks || []).map((landmarks, i) => {
+                    const handedness = results.multiHandedness?.[i];
+                    return {
+                        handedness: handedness?.label || 'Unknown',
+                        score: handedness?.score ?? 0.5,
+                        landmarks: landmarks.map(p => ({ x: p.x, y: p.y, z: p.z ?? 0 }))
+                    };
+                });
+            });
+        } catch {
+            handsSolution = null;
+        }
+    }
     const frameMsHistory = [];
     const trailTracks = new Map();
     const detectionTimeline = [];
@@ -711,8 +741,12 @@
             timestamp: Date.now(),
             imageData: capture.toDataURL('image/jpeg', 0.58),
             processingMode: 'scene',
-            sceneOptions: payloadOptions()
+            sceneOptions: payloadOptions(),
+            clientHands: mcFHand.checked ? latestClientHands : []
         };
+        if (mcFHand.checked && handsSolution) {
+            handsSolution.send({ image: video }).catch(() => {});
+        }
         const data = await transport.processFrame(payload);
         if (data?.__httpError) {
             jsonOut.textContent = data.text || `HTTP ${data.status}`;
@@ -780,6 +814,7 @@
     });
 
     document.getElementById('mcStart').addEventListener('click', async () => {
+        initHandsSolution();
         droppedFrames = 0;
         frameMsHistory.length = 0;
         fpsFrames = 0;
@@ -801,6 +836,7 @@
         await processor.stop();
         await transport.disconnect();
         await transport.cleanupSession();
+        latestClientHands = [];
     });
 
     SceneSharedClient.bindProcessAll(opts.all, [opts.ssd, opts.face, opts.body, opts.cat]);
@@ -810,6 +846,15 @@
     applyPreset('balanced');
     syncModelOptionVisibility();
     applyYoloBestProfileFromApi();
+
+    // SPA nav away from this page: stop the camera/session instead of leaving them running.
+    window.__spaTeardown = () => {
+        if (processor.isRunning()) {
+            processor.stop();
+            transport.disconnect();
+            transport.cleanupSession();
+        }
+    };
 })();
 </script>
 }

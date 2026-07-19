@@ -9,7 +9,6 @@ namespace STAR_MUTIMEDIA.Models
     {
         public int FacesDetected { get; set; }
         public int EyesDetected { get; set; }
-        public int EarsDetected { get; set; }
         public int HandsDetected { get; set; }
         public int TotalFramesProcessed { get; set; }
         public double CurrentMovementLevel { get; set; }
@@ -43,7 +42,6 @@ namespace STAR_MUTIMEDIA.Models
             {
                 FacesDetected = this.FacesDetected,
                 EyesDetected = this.EyesDetected,
-                EarsDetected = this.EarsDetected,
                 HandsDetected = this.HandsDetected,
                 TotalFramesProcessed = this.TotalFramesProcessed,
                 CurrentMovementLevel = this.CurrentMovementLevel,
@@ -216,8 +214,6 @@ namespace STAR_MUTIMEDIA.Models
         public bool FaceCascadeReady { get; set; }
         public bool EyeCascadeReady { get; set; }
         public bool HandCascadeReady { get; set; }
-        public bool FullBodyCascadeReady { get; set; }
-        public bool CatCascadeReady { get; set; }
         public bool SsdLoaded { get; set; }
         public bool SsdLoadFailed { get; set; }
     }
@@ -307,7 +303,6 @@ namespace STAR_MUTIMEDIA.Models
     {
         public List<FaceDetection> Faces { get; set; } = new List<FaceDetection>();
         public List<EyeDetection> Eyes { get; set; } = new List<EyeDetection>();
-        public List<EarDetection> Ears { get; set; } = new List<EarDetection>();
         public List<HandDetection> Hands { get; set; } = new List<HandDetection>();
         public List<TextDetection> TextRegions { get; set; } = new List<TextDetection>();
         public List<ObjectDetection> Objects { get; set; } = new List<ObjectDetection>();
@@ -328,14 +323,6 @@ namespace STAR_MUTIMEDIA.Models
         public double Confidence { get; set; }
         public string State { get; set; } // Open, Closed, Blinking
         public GazeDirection Gaze { get; set; }
-        public int TrackId { get; set; }
-    }
-
-    public class EarDetection
-    {
-        public BoundingBox BBox { get; set; } = new BoundingBox();
-        public double Confidence { get; set; }
-        public string Side { get; set; } // Left, Right (subject's left/right ear)
         public int TrackId { get; set; }
     }
 
@@ -386,10 +373,6 @@ namespace STAR_MUTIMEDIA.Models
         public bool SsdLoaded { get; set; }
         public bool FaceCascadeRequested { get; set; }
         public bool FaceCascadeReady { get; set; }
-        public bool FullBodyRequested { get; set; }
-        public bool FullBodyReady { get; set; }
-        public bool CatCascadeRequested { get; set; }
-        public bool CatCascadeReady { get; set; }
         public bool ProcessAllModels { get; set; }
     }
 
@@ -403,6 +386,8 @@ namespace STAR_MUTIMEDIA.Models
         public BoundingBox BBox { get; set; } = new BoundingBox();
         /// <summary>ssd, face, fullbody, cat_cascade</summary>
         public string Source { get; set; } = "";
+        /// <summary>Stable per-session identity assigned by SceneEntityTracker; 0 = untracked.</summary>
+        public int TrackId { get; set; }
     }
 
     public class FrameData
@@ -413,6 +398,17 @@ namespace STAR_MUTIMEDIA.Models
         public int FrameNumber { get; set; }
         public string ProcessingMode { get; set; } = "standard"; // standard, enhanced, fast
         public SceneProcessingOptions SceneOptions { get; set; } = new SceneProcessingOptions();
+        /// <summary>Real hand landmarks from the browser's MediaPipe Hands solution (normalized [0,1] coords), one entry per detected hand.</summary>
+        public List<ClientHandData> ClientHands { get; set; } = new List<ClientHandData>();
+    }
+
+    /// <summary>One hand's worth of MediaPipe Hands output, sent up from the client.</summary>
+    public class ClientHandData
+    {
+        public string Handedness { get; set; }
+        public double Score { get; set; }
+        /// <summary>21 landmark points, normalized [0,1] relative to the video frame.</summary>
+        public List<LandmarkPoint> Landmarks { get; set; } = new List<LandmarkPoint>();
     }
 
     public class SceneProcessingOptions
@@ -424,21 +420,15 @@ namespace STAR_MUTIMEDIA.Models
 
         // Detector/model toggles
         public bool EnableSsdModel { get; set; } = true;
-        public string SceneModelBackend { get; set; } = "yolo"; // ssd, yolo
         public bool EnableFaceCascade { get; set; } = true;
-        public bool EnableFullBodyCascade { get; set; } = true;
-        public bool EnableCatCascade { get; set; } = true;
 
         // If true, executes all enabled model/cascade sources in one frame.
         public bool ProcessAllModels { get; set; } = true;
 
         // Per-source thresholds/tuning
-        public double SsdConfidenceThreshold { get; set; } = 0.35;
+        public double ObjectConfidenceThreshold { get; set; } = 0.35;
         public int YoloInputSize { get; set; } = 640;
         public double YoloNmsThreshold { get; set; } = 0.45;
-        public int FullBodyMinNeighbors { get; set; } = 3;
-        public int CatMinNeighbors { get; set; } = 6;
-        public double CatMinAreaRatio { get; set; } = 0.004;
     }
 
     public class EnhancedFrameData : FrameData
@@ -757,6 +747,9 @@ namespace STAR_MUTIMEDIA.Models
         public string InferenceProvider { get; set; } = "cpu";
 
         public SceneAnalysisResult LastSceneAnalysis { get; set; }
+
+        [JsonIgnore]
+        public STAR_MUTIMEDIA.Services.SceneEntityTracker EntityTracker { get; } = new STAR_MUTIMEDIA.Services.SceneEntityTracker();
 
         /// <summary>Primary face centroid for speed estimation (pixel space).</summary>
         public double LastPrimaryFaceCenterX { get; set; }

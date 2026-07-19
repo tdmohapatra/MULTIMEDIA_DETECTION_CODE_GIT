@@ -337,7 +337,10 @@
                         </div>
                     </div>
                 </div>
-                <pre id="output" class="small bg-black text-info p-2 border rounded" style="height:280px; overflow:auto;"></pre>
+                <details class="mt-2">
+                    <summary class="small text-muted" style="cursor:pointer;">Raw session JSON (debug)</summary>
+                    <pre id="output" class="small bg-black text-info p-2 border rounded mt-2" style="height:280px; overflow:auto;"></pre>
+                </details>
             </div>
         </div>
     </div>
@@ -345,6 +348,7 @@
 
 @section Scripts {
 <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.7/signalr.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 <script src="~/js/sceneSharedClient.js"></script>
 <script>
 (() => {
@@ -390,6 +394,8 @@
     const runtimePerf = document.getElementById('runtimePerf');
     let diagTimer = null;
     let lastProcessedFrameNo = 0;
+    let handsSolution = null;
+    let latestClientHands = [];
     const handTrail = [];
     let isRecordingTrail = false;
     const faceState = new Map();
@@ -454,7 +460,35 @@
         onFrame: ({ frameNo }) => processFrame(frameNo)
     });
 
+    function initHandsSolution() {
+        if (handsSolution || typeof Hands === 'undefined') return;
+        try {
+            handsSolution = new Hands({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@@mediapipe/hands/${file}`
+            });
+            handsSolution.setOptions({
+                maxNumHands: 2,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+            handsSolution.onResults((results) => {
+                latestClientHands = (results.multiHandLandmarks || []).map((landmarks, i) => {
+                    const handedness = results.multiHandedness?.[i];
+                    return {
+                        handedness: handedness?.label || 'Unknown',
+                        score: handedness?.score ?? 0.5,
+                        landmarks: landmarks.map(p => ({ x: p.x, y: p.y, z: p.z ?? 0 }))
+                    };
+                });
+            });
+        } catch {
+            handsSolution = null;
+        }
+    }
+
     async function start() {
+        initHandsSolution();
         await processor.start();
         processor.resetFrameCounter();
         await transport.initializeSession();
@@ -468,6 +502,7 @@
         await processor.stop();
         await transport.disconnect();
         await transport.cleanupSession();
+        latestClientHands = [];
         if (diagTimer) {
             clearInterval(diagTimer);
             diagTimer = null;
@@ -626,8 +661,16 @@
             sessionId: sid(),
             frameNumber: frameNo,
             timestamp: Date.now(),
-            imageData
+            imageData,
+            clientHands: showHands.checked ? latestClientHands : []
         };
+
+        if (showHands.checked && handsSolution) {
+            // Fire-and-forget: onResults updates latestClientHands asynchronously,
+            // so this frame's payload carries the previous frame's landmarks (one-frame
+            // latency) rather than blocking the capture loop on MediaPipe's own inference.
+            handsSolution.send({ image: video }).catch(() => {});
+        }
 
         const data = await transport.processFrame(payload);
         if (data?.__httpError) {
@@ -974,14 +1017,25 @@
             ctx.fill();
             return;
         }
-        ctx.beginPath();
+        // Don't connect points across a large gap (frame skip, brief occlusion) —
+        // a straight line jumping across the whole canvas reads as a broken trail,
+        // not as motion. Start a fresh segment instead.
+        const maxGapMs = 400;
         ctx.strokeStyle = color;
         ctx.lineWidth = 2;
         ctx.lineJoin = "round";
         ctx.lineCap = "round";
+        ctx.beginPath();
         ctx.moveTo(points[0].x, points[0].y);
         for (let i = 1; i < points.length; i++) {
-            ctx.lineTo(points[i].x, points[i].y);
+            const gap = (points[i].t ?? 0) - (points[i - 1].t ?? 0);
+            if (gap > maxGapMs) {
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(points[i].x, points[i].y);
+            } else {
+                ctx.lineTo(points[i].x, points[i].y);
+            }
         }
         ctx.stroke();
     }
@@ -1170,6 +1224,13 @@
         if (fingerCount >= 4) return "OpenPalm";
         return `${fingerCount}Fingers`;
     }
+
+    // SPA nav away from this page: stop the camera/session instead of leaving them running.
+    window.__spaTeardown = () => {
+        if (processor.isRunning()) {
+            stop();
+        }
+    };
 })();
 </script>
 }

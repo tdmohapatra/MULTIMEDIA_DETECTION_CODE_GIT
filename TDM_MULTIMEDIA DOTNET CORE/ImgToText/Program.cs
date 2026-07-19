@@ -237,20 +237,20 @@ if (!Directory.Exists(cascadesPath))
     app.Logger.LogWarning("Created cascades directory at {CascadesPath}. Download required Haar cascade XML files before detection demo.", cascadesPath);
 }
 
-var requiredCascades = new[]
+var modelsPath = Path.Combine(Directory.GetCurrentDirectory(), "Uploads", "models");
+var requiredModels = new[]
 {
-    "haarcascade_frontalface_alt.xml",
-    "haarcascade_eye.xml",
-    "haarcascade_mcs_leftear.xml",
-    "haarcascade_mcs_rightear.xml"
+    "face_detection_yunet_2023mar.onnx",
+    "emotion-ferplus-8.onnx",
+    "yolov8n.onnx"
 };
 
-foreach (var cascadeFile in requiredCascades)
+foreach (var modelFile in requiredModels)
 {
-    var fullCascadePath = Path.Combine(cascadesPath, cascadeFile);
-    if (!File.Exists(fullCascadePath))
+    var fullModelPath = Path.Combine(modelsPath, modelFile);
+    if (!File.Exists(fullModelPath))
     {
-        app.Logger.LogWarning("Missing required cascade file: {CascadeFile}", fullCascadePath);
+        app.Logger.LogWarning("Missing required model file: {ModelFile}", fullModelPath);
     }
 }
 
@@ -264,12 +264,12 @@ app.MapGet("/ready", () =>
         missingItems.Add(requiredLanguageFile);
     }
 
-    foreach (var cascadeFile in requiredCascades)
+    foreach (var modelFile in requiredModels)
     {
-        var fullCascadePath = Path.Combine(cascadesPath, cascadeFile);
-        if (!File.Exists(fullCascadePath))
+        var fullModelPath = Path.Combine(modelsPath, modelFile);
+        if (!File.Exists(fullModelPath))
         {
-            missingItems.Add(fullCascadePath);
+            missingItems.Add(fullModelPath);
         }
     }
 
