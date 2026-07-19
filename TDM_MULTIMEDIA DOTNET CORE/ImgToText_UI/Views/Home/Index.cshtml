@@ -1,17 +1,9 @@
 ﻿@{
     var apiBase = (ViewData["ApiBaseUrl"]?.ToString() ?? $"{Context.Request.Scheme}://{Context.Request.Host}").TrimEnd('/');
     var uiBase = $"{Context.Request.Scheme}://{Context.Request.Host}";
+    ViewData["Title"] = "STAR MULTIMEDIA - Advanced Digital Solutions";
 }
-    @* @{
-        Layout = null;
-    }
- *@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>STAR MULTIMEDIA - Advanced Digital Solutions</title>
+@section Styles {
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
@@ -1075,8 +1067,8 @@
             }
         }
     </style>
-</head>
-<body class="theme-default">
+}
+<div id="home-root" class="theme-default">
     <!-- Animated Background -->
     <div class="animated-bg parallax-layer" data-depth="0.015"></div>
 
@@ -1538,7 +1530,8 @@
             </div>
         </div>
     </footer>
-
+</div>
+@section Scripts {
     <script>
         // Create floating particles
         function createParticles() {
@@ -1630,8 +1623,9 @@
             item.addEventListener('click', function() {
                 const theme = this.getAttribute('data-theme');
 
-                // Update body class
-                document.body.className = theme;
+                // Update theme root class (scoped to this page, not document.body — the
+                // shared app shell manages its own body-level theme class independently)
+                document.getElementById('home-root').className = theme;
 
                 // Update active state
                 themeOptionsItems.forEach(opt => opt.classList.remove('active'));
@@ -1645,11 +1639,13 @@
             });
         });
 
-        // Load saved theme from localStorage
-        document.addEventListener('DOMContentLoaded', function() {
+        // Load saved theme from localStorage. Scripts injected by the SPA router run after
+        // the content is already in the DOM, so this doesn't wait for DOMContentLoaded
+        // (which has already fired and won't refire on SPA re-entry).
+        (function () {
             const savedTheme = localStorage.getItem('star-multimedia-theme');
             if (savedTheme) {
-                document.body.className = savedTheme;
+                document.getElementById('home-root').className = savedTheme;
                 themeOptionsItems.forEach(opt => {
                     opt.classList.remove('active');
                     if (opt.getAttribute('data-theme') === savedTheme) {
@@ -1657,7 +1653,7 @@
                     }
                 });
             }
-        });
+        })();
 
         // Environment link switcher (local / staging / production)
         const envProfiles = {
@@ -1973,16 +1969,16 @@
             window.addEventListener('keydown', ensureAudio, { once: true });
         }
 
-        // Initialize
-        document.addEventListener('DOMContentLoaded', function() {
-            createParticles();
-            handleScrollAnimations();
-            initMenuEntryAnimations();
-            initSectionReveal();
-            initMenuSoundFx();
-            initParallax();
-            initPageTransitions();
+        // Initialize (see note above re: not waiting on DOMContentLoaded)
+        createParticles();
+        handleScrollAnimations();
+        initMenuEntryAnimations();
+        initSectionReveal();
+        initMenuSoundFx();
+        initParallax();
+        initPageTransitions();
 
+        {
             const environmentSelect = document.getElementById('environmentSelect');
             const savedEnv = localStorage.getItem('star-multimedia-env') || 'local';
             if (environmentSelect) {
@@ -1995,7 +1991,16 @@
             const introStopBtn = document.getElementById('introStopBtn');
             if (introPlayBtn) introPlayBtn.addEventListener('click', playIntroNarration);
             if (introStopBtn) introStopBtn.addEventListener('click', stopIntroNarration);
-        });
+        }
+
+        // SPA nav away from this page: stop ambience/narration and the route-health poll.
+        window.__spaTeardown = () => {
+            stopAmbience();
+            stopIntroNarration();
+            if (routeHealthTimer) {
+                clearInterval(routeHealthTimer);
+                routeHealthTimer = null;
+            }
+        };
     </script>
-</body>
-</html>
+}

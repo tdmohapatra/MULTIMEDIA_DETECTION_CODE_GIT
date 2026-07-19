@@ -9,6 +9,7 @@
     if (!content || !scriptsHost) return;
 
     let navigating = false;
+    let currentStyleNodes = [];
 
     function runPageScripts(sourceHost) {
         const scripts = Array.from(sourceHost.querySelectorAll('script'));
@@ -19,6 +20,34 @@
             fresh.textContent = old.textContent;
             scriptsHost.appendChild(fresh);
         });
+    }
+
+    // Page-specific <head> styles (@section Styles) aren't part of #spa-content, so they need
+    // their own swap: drop whatever the previous page injected, then copy in whatever sits
+    // after the <!--spa-styles-start--> marker in the newly fetched document's <head>.
+    function findStyleMarker(headEl) {
+        const walker = document.createTreeWalker(headEl, NodeFilter.SHOW_COMMENT);
+        let node;
+        while ((node = walker.nextNode())) {
+            if (node.textContent.trim() === 'spa-styles-start') return node;
+        }
+        return null;
+    }
+
+    function applyPageStyles(newDoc) {
+        currentStyleNodes.forEach(n => n.remove());
+        currentStyleNodes = [];
+
+        const marker = findStyleMarker(newDoc.head);
+        if (!marker) return;
+
+        for (let node = marker.nextSibling; node; node = node.nextSibling) {
+            if (node.nodeType === Node.ELEMENT_NODE && (node.tagName === 'LINK' || node.tagName === 'STYLE')) {
+                const fresh = document.importNode(node, true);
+                document.head.appendChild(fresh);
+                currentStyleNodes.push(fresh);
+            }
+        }
     }
 
     function teardownCurrentPage() {
@@ -52,6 +81,7 @@
 
             teardownCurrentPage();
 
+            applyPageStyles(doc);
             content.innerHTML = newContent.innerHTML;
             document.title = doc.title;
             if (push) history.pushState({ spa: true }, '', url);
